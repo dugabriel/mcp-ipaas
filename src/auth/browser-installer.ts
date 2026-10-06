@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { chromium, type Browser, type LaunchOptions } from "playwright";
 import { ensureGraphicalEnv } from "./display-env.js";
 
@@ -40,11 +41,19 @@ export async function launchChromiumWithAutoInstall(options: LaunchOptions): Pro
   }
 }
 
-/** Resolve o entrypoint da CLI do Playwright de forma compativel com ESM. */
+/**
+ * Resolve o entrypoint da CLI do Playwright (o arquivo cli.js na raiz do pacote).
+ * O subpath "./cli" NAO esta no mapa de "exports" do playwright/playwright-core nas
+ * versoes atuais, entao resolve-se via package.json (sempre exportado) + join("cli.js").
+ */
 function resolvePlaywrightCli(): string {
-  try {
-    return require.resolve("playwright/cli");
-  } catch {
-    return require.resolve("playwright-core/cli");
+  for (const pkg of ["playwright", "playwright-core"]) {
+    try {
+      const pkgJson = require.resolve(`${pkg}/package.json`);
+      return join(dirname(pkgJson), "cli.js");
+    } catch {
+      // tenta o proximo pacote
+    }
   }
+  throw new Error("Nao foi possivel localizar a CLI do Playwright (playwright/playwright-core)");
 }
