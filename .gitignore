@@ -1,0 +1,27 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+ipaas-mcp-server*.log
+
+# Playwright browsers cache (baixados em runtime)
+.cache/ms-playwright/
+
+# Env / secrets (o token de sessao fica so em memoria)
+.env
+*.local.env
+
+# IDEs
+.idea/
+*.iml
+.vscode
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config MCP local da maquina (caminhos/DISPLAY/XAUTHORITY variam por ambiente)
+.kiro/settings/mcp.json

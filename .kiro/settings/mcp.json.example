@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ipaas": {
+      "command": "npx",
+      "args": ["-y", "ipaas-mcp-server"],
+      "env": {
+        "DISPLAY": ":0"
+      },
+      "disabled": false,
+      "autoApprove": ["status_sessao", "analisar_mensagem_erro"]
+    }
+  }
+}

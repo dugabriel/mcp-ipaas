@@ -1,0 +1,57 @@
+{
+  "name": "ipaas-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP Server (STDIO) para automatizar e monitorar o TOTVS iPaaS (login manual via Playwright).",
+  "type": "module",
+  "bin": {
+    "ipaas-mcp-server": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "API-MAP.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "node scripts/smoke-test.mjs",
+    "prepublishOnly": "npm run build",
+    "prepare": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "playwright": "^1.63.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "totvs",
+    "ipaas",
+    "playwright",
+    "stdio"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dugabriel/mcp-ipaas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dugabriel/mcp-ipaas/issues"
+  },
+  "homepage": "https://github.com/dugabriel/mcp-ipaas#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
