@@ -20,18 +20,20 @@ Adicione o servidor na configuração MCP do seu host. Exemplo (formato `mcpServ
   "mcpServers": {
     "ipaas": {
       "command": "npx",
-      "args": ["-y", "ipaas-mcp-server"],
-      "env": {
-        "DISPLAY": ":0"
-      }
+      "args": ["-y", "ipaas-mcp-server"]
     }
   }
 }
 ```
 
-> **`DISPLAY`**: o login abre uma janela gráfica. Em Linux, informe o display da sua sessão (ex.: `:0`).
-> Em alguns ambientes também é preciso `XAUTHORITY` e `XDG_RUNTIME_DIR`. Em desktop com GUI isso
-> normalmente já está no ambiente.
+A **mesma configuração funciona em Windows, macOS e Linux**, sem ajustes.
+
+> **Login gráfico:** o login abre uma janela do Chromium. No **Windows/macOS** funciona direto.
+> No **Linux (desktop X11/Wayland)**, o servidor **detecta automaticamente** o display
+> (`DISPLAY`/`XAUTHORITY`); não é preciso configurar nada. Se o seu ambiente usar um display
+> fora do padrão, você ainda pode forçar via `env` (`"DISPLAY": ":1"`, etc.). Em **Linux headless**
+> (sem interface gráfica, ex.: servidor/SSH/container), o login manual não é possível — rode o
+> servidor numa máquina com desktop.
 
 No **Kiro**, a config fica em `.kiro/settings/mcp.json` (workspace) ou `~/.kiro/settings/mcp.json` (usuário).
 

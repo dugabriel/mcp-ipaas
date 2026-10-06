@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { chromium, type Browser, type LaunchOptions } from "playwright";
+import { ensureGraphicalEnv } from "./display-env.js";
 
 const require = createRequire(import.meta.url);
 
@@ -18,6 +19,8 @@ function isMissingBrowser(err: unknown): boolean {
  * tolerante: se falhar, o erro original de launch e propagado para a camada de login.
  */
 export async function launchChromiumWithAutoInstall(options: LaunchOptions): Promise<Browser> {
+  // Em Linux, garante DISPLAY/XAUTHORITY antes de abrir o navegador (no-op em Win/Mac).
+  ensureGraphicalEnv();
   try {
     return await chromium.launch(options);
   } catch (err) {

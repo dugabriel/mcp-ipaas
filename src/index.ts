@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   const apiClient = new IpaasApiClient(config, sessionStore);
   const authService = new IpaasAuthService(config);
 
-  const server = new McpServer({ name: "ipaas-mcp-server", version: "0.1.0" });
+  const server = new McpServer({ name: "ipaas-mcp-server", version: "0.2.0" });
   const deps = { config, sessionStore, apiClient, authService };
   const loginState = registerIpaasTools(server, deps);
   if (process.env.IPAAS_DEV_TOOLS === "1") {
