@@ -121,3 +121,60 @@ export function extractItemTimestamp(item: any): number | undefined {
   }
   return undefined;
 }
+
+/** Uma integracao normalizada vinda de /v4/messages/filters, pronta para filtrar mensagens. */
+export interface FilterIntegration {
+  id: string | null;
+  name: string | null;
+  projectId: string | null;
+  archived: boolean;
+}
+
+/** Um projeto normalizado vindo de /v4/messages/filters. */
+export interface FilterProject {
+  id: string | null;
+  name: string | null;
+  active: boolean;
+}
+
+function mapIntegrations(list: any, archived: boolean): FilterIntegration[] {
+  return arrayItems(Array.isArray(list) ? list : list ?? []).map((item) => ({
+    id: (textOrUndefined(item, "id") as string | undefined) ?? null,
+    name: (textOrUndefined(item, "name") as string | undefined) ?? null,
+    projectId: (textOrUndefined(item, "projectId") as string | undefined) ?? null,
+    archived,
+  }));
+}
+
+function mapProjects(list: any, active: boolean): FilterProject[] {
+  return arrayItems(Array.isArray(list) ? list : list ?? []).map((item) => ({
+    id: (textOrUndefined(item, "id") as string | undefined) ?? null,
+    name: (textOrUndefined(item, "name") as string | undefined) ?? null,
+    active,
+  }));
+}
+
+/** Normaliza o envelope de /v4/messages/filters em listas planas de integracoes e projetos. */
+export function normalizeMessageFilters(root: any): {
+  integrations: FilterIntegration[];
+  projects: FilterProject[];
+} {
+  const integrationsFilters = root?.integrationsFilters ?? {};
+  const projectsFilter = root?.projectsFilter ?? {};
+  const integrations = [
+    ...mapIntegrations(integrationsFilters.publishedIntegrations, false),
+    ...mapIntegrations(integrationsFilters.archivedIntegrations, true),
+  ];
+  const projects = [
+    ...mapProjects(projectsFilter.activateProjects, true),
+    ...mapProjects(projectsFilter.deactivateProjects, false),
+  ];
+  return { integrations, projects };
+}
+
+/** Filtra por nome (case-insensitive); vazio/indefinido devolve a lista inteira. */
+export function filterByName<T extends { name: string | null }>(items: T[], search: string | undefined): T[] {
+  if (!search || search.trim() === "") return items;
+  const needle = search.trim().toLowerCase();
+  return items.filter((item) => (item.name ?? "").toLowerCase().includes(needle));
+}

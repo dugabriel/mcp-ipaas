@@ -1,6 +1,6 @@
 {
   "name": "ipaas-mcp-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP Server (STDIO) para automatizar e monitorar o TOTVS iPaaS (login manual via Playwright).",
   "type": "module",
   "bin": {

@@ -377,6 +377,109 @@ describe("new tools from API mapping", () => {
     expect(parsed.summary.ERROR).toBe(3);
   });
 
+  it("listar_filtros_disponiveis normalizes integrations and projects", async () => {
+    const body = JSON.stringify({
+      integrationsFilters: {
+        publishedIntegrations: [
+          { id: "int-pub-1", name: "Pedido de Venda", projectId: "proj-1", reprocessable: true },
+          { id: "int-pub-2", name: "Nota Fiscal", projectId: "proj-1", reprocessable: false },
+        ],
+        archivedIntegrations: [
+          { id: "int-arc-1", name: "Pedido Legado", projectId: "proj-2", reprocessable: false },
+        ],
+      },
+      projectsFilter: {
+        activateProjects: [
+          { id: "proj-1", name: "Vendas" },
+          { id: "proj-2", name: "Fiscal" },
+        ],
+        deactivateProjects: [{ id: "proj-3", name: "Compras Antigo" }],
+      },
+    });
+    const { call } = setup2({ getMessageFilters: async () => ({ status: 200, body }) });
+    const out = await call("listar_filtros_disponiveis", {});
+    const parsed = JSON.parse(out);
+    expect(parsed.integrations.total).toBe(3);
+    expect(parsed.projects.total).toBe(3);
+    const archived = parsed.integrations.items.find((i) => i.id === "int-arc-1");
+    expect(archived.archived).toBe(true);
+    const published = parsed.integrations.items.find((i) => i.id === "int-pub-1");
+    expect(published.archived).toBe(false);
+    expect(published.projectId).toBe("proj-1");
+    const inactive = parsed.projects.items.find((p) => p.id === "proj-3");
+    expect(inactive.active).toBe(false);
+    expect(out).not.toContain("token-secret");
+  });
+
+  it("listar_filtros_disponiveis filters by name (case-insensitive) across types", async () => {
+    const body = JSON.stringify({
+      integrationsFilters: {
+        publishedIntegrations: [
+          { id: "int-pub-1", name: "Pedido de Venda", projectId: "proj-1", reprocessable: true },
+          { id: "int-pub-2", name: "Nota Fiscal", projectId: "proj-1", reprocessable: false },
+        ],
+        archivedIntegrations: [
+          { id: "int-arc-1", name: "Pedido Legado", projectId: "proj-2", reprocessable: false },
+        ],
+      },
+      projectsFilter: {
+        activateProjects: [
+          { id: "proj-1", name: "Vendas" },
+          { id: "proj-2", name: "Fiscal" },
+        ],
+        deactivateProjects: [{ id: "proj-3", name: "Compras Antigo" }],
+      },
+    });
+    const { call } = setup2({ getMessageFilters: async () => ({ status: 200, body }) });
+    const out = await call("listar_filtros_disponiveis", { search: "pedido" });
+    const parsed = JSON.parse(out);
+    expect(parsed.search).toBe("pedido");
+    expect(parsed.integrations.total).toBe(2);
+    expect(parsed.integrations.items.map((i) => i.id).sort()).toEqual(["int-arc-1", "int-pub-1"]);
+    expect(parsed.projects.total).toBe(0);
+  });
+
+  it("listar_filtros_disponiveis respects the per-type cap and flags truncation", async () => {
+    const body = JSON.stringify({
+      integrationsFilters: {
+        publishedIntegrations: [
+          { id: "int-pub-1", name: "Pedido de Venda", projectId: "proj-1", reprocessable: true },
+          { id: "int-pub-2", name: "Nota Fiscal", projectId: "proj-1", reprocessable: false },
+        ],
+        archivedIntegrations: [
+          { id: "int-arc-1", name: "Pedido Legado", projectId: "proj-2", reprocessable: false },
+        ],
+      },
+      projectsFilter: {
+        activateProjects: [
+          { id: "proj-1", name: "Vendas" },
+          { id: "proj-2", name: "Fiscal" },
+        ],
+        deactivateProjects: [{ id: "proj-3", name: "Compras Antigo" }],
+      },
+    });
+    const { call } = setup2({ getMessageFilters: async () => ({ status: 200, body }) });
+    const out = await call("listar_filtros_disponiveis", { limit: 1 });
+    const parsed = JSON.parse(out);
+    expect(parsed.integrations.count).toBe(1);
+    expect(parsed.integrations.total).toBe(3);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.refineHint).toBeDefined();
+  });
+
+  it("listar_filtros_disponiveis 401 -> SESSION_EXPIRED", async () => {
+    const { call } = setup2({ getMessageFilters: async () => ({ status: 401, body: "no" }) });
+    expect(await call("listar_filtros_disponiveis", {})).toContain("SESSION_EXPIRED");
+  });
+
+  it("listar_filtros_disponiveis without session -> missingSession", async () => {
+    const sessionStore = new SessionStore();
+    const server = new FakeMcpServer();
+    registerIpaasTools(server as any, { config, sessionStore, apiClient: { getMessageFilters: async () => { throw new Error("should not call"); } } as any, authService: {} as any });
+    const out = (await server.handlers.get("listar_filtros_disponiveis")!({})).content[0]!.text;
+    expect(out).toContain("iniciar_login_ipaas");
+  });
+
   it("resumo_por_status without session -> missingSession", async () => {
     const sessionStore = new SessionStore();
     const server = new FakeMcpServer();

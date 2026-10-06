@@ -16,6 +16,8 @@ import {
   requestFailed,
   parseIsoDate,
   extractItemTimestamp,
+  normalizeMessageFilters,
+  filterByName,
 } from "./tool-helpers.js";
 
 const isoHint = "ISO-8601 com sufixo Z, ex.: 2024-01-01T00:00:00Z";
@@ -107,6 +109,77 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         return jsonResponse({ count: flows.length, flows });
       } catch (err) {
         return errorResponse("Failed to list iPaaS flows", err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "listar_filtros_disponiveis",
+    {
+      description:
+        "Lista os filtros disponiveis do Monitor do TOTVS iPaaS: integracoes e projetos que podem ser usados " +
+        "como filtro em listar_mensagens (integrationIds, projectIds). Use para descobrir o id de uma integracao " +
+        "ou projeto pelo nome e, a partir dele, aprofundar a investigacao de um fluxo/diagrama. Parametro opcional " +
+        "'search' filtra integracoes e projetos por nome (case-insensitive). Teto de resultados por tipo para nao " +
+        "estourar o contexto; quando truncado, refine com 'search'. Exige sessao ativa. Nunca expoe o token.",
+      inputSchema: {
+        search: z
+          .string()
+          .optional()
+          .describe("Texto para filtrar integracoes e projetos por nome (case-insensitive)."),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Teto de resultados por tipo (integracoes e projetos). Padrao 50."),
+      },
+    },
+    async ({ search, limit }) => {
+      try {
+        if (sessionStore.state() !== "ATIVA") return missingSession();
+        const response = await apiClient.getMessageFilters();
+        if (isUnauthorized(response)) return sessionExpiredOnServer();
+        if (!isOk(response)) {
+          return requestFailed(response, "Nao foi possivel listar os filtros disponiveis do Monitor do iPaaS.");
+        }
+        const root = tryParseJson(response.body);
+        if (!root) {
+          return jsonResponse({
+            format: "TEXT",
+            message: "Resposta do iPaaS nao e JSON valido; segue o texto tratado.",
+            text: (response.body ?? "").trim(),
+          });
+        }
+        const { integrations, projects } = normalizeMessageFilters(root);
+        const matchedIntegrations = filterByName(integrations, search);
+        const matchedProjects = filterByName(projects, search);
+        const cap = limit && limit > 0 ? limit : 50;
+        const integrationsPage = matchedIntegrations.slice(0, cap);
+        const projectsPage = matchedProjects.slice(0, cap);
+        const truncated = matchedIntegrations.length > cap || matchedProjects.length > cap;
+        const result: Record<string, unknown> = {
+          search: search?.trim() ?? null,
+          integrations: {
+            count: integrationsPage.length,
+            total: matchedIntegrations.length,
+            items: integrationsPage,
+          },
+          projects: {
+            count: projectsPage.length,
+            total: matchedProjects.length,
+            items: projectsPage,
+          },
+          truncated,
+        };
+        if (truncated) {
+          result.refineHint =
+            `Mais de ${cap} resultados em algum tipo. Use 'search' para filtrar por nome ` +
+            "ou aumente 'limit'. Com o id em maos, chame listar_mensagens com integrationIds/projectIds.";
+        }
+        return jsonResponse(result);
+      } catch (err) {
+        return errorResponse("Failed to list iPaaS monitor filters", err);
       }
     },
   );

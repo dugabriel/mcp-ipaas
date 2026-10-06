@@ -7,6 +7,7 @@ export type FetchLike = typeof fetch;
 
 const MESSAGES_PATH = "/ipaas/api/v4/messages";
 const MESSAGES_STATUS_PATH = "/ipaas/api/v4/messages/status";
+const MESSAGES_FILTERS_PATH = "/ipaas/api/v4/messages/filters";
 const ALL_STATUSES = ["DONE", "ERROR", "PROCESSING", "REPROCESSED"];
 
 /**
@@ -68,6 +69,11 @@ export class IpaasApiClient {
     params.set("finalDate", end.toISOString());
     for (const st of ALL_STATUSES) params.append("status", st);
     return this.get(MESSAGES_STATUS_PATH + "?" + params.toString());
+  }
+
+  /** Lista os filtros disponiveis do Monitor (integracoes e projetos para filtrar mensagens). */
+  async getMessageFilters(): Promise<ApiResponse> {
+    return this.get(MESSAGES_FILTERS_PATH);
   }
 
   private buildMessagesQuery(query: MessageQuery): string {

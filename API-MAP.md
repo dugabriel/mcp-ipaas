@@ -34,6 +34,13 @@ Query: `initialDate`, `endDate` (YYYY-MM-DD), `forceUpdate`. Metricas de transac
 ### GET /ipaas/api/v3/integrations  (listagem de fluxos)
 Query: `page`, `pageSize`, `lastVersion=true`, `fieldsReturn=id,diagramId,name,status`.
 
+### GET /ipaas/api/v4/messages/filters  (filtros disponiveis do Monitor) — confirmado
+Sem query. Retorna integracoes e projetos que alimentam integrationIds/projectIds em /v4/messages.
+Estrutura: { integrationsFilters: { publishedIntegrations[], archivedIntegrations[] (id,name,projectId,reprocessable) },
+  projectsFilter: { activateProjects[], deactivateProjects[], activatePackages[], deactivatePackages[] (id,name) } }.
+Tool `listar_filtros_disponiveis` normaliza em integrations (id,name,projectId,archived) e projects (id,name,active),
+com busca por nome (`search`) e teto por tipo (`limit`).
+
 ### GET /ipaas/api/v3/steps/{integrationId}/{createdDate}/{messageId}  (steps de uma mensagem)
 Os tres identificadores vem da LISTAGEM /v4/messages (id, integrationId, createdDate).
 

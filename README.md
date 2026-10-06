@@ -90,6 +90,7 @@ O token muda a cada troca de empresa, então o login é em dois passos:
 | `status_sessao` | Valida a sessão contra a API e retorna o estado (sem expor o token). |
 | `analisar_mensagem_erro` | Estrutura um log/payload de erro; destaca status, errorStack, message, messageId. Não exige sessão. |
 | `listar_fluxos` | Lista integrações (id, diagramId, nome, status). Suporta `pageSize` (padrão 200). |
+| `listar_filtros_disponiveis` | Lista integrações e projetos usáveis como filtro (`integrationIds`, `projectIds`). Busca por nome via `search`; teto por tipo (`limit`, padrão 50). |
 | `listar_mensagens` | Amostra de mensagens do Monitor por período, status, `integrationIds`, `projectIds` e `sourceTypes`. Teto de 100/chamada; pagina por janela de tempo (`nextWindow`). |
 | `detalhar_mensagem` | Detalhe de uma mensagem por id (status, tempos, componentes, erro). Distingue DONE de ERROR. |
 | `detalhar_steps` | Steps de execução de uma mensagem; destaca o componente e o erro, sem expor headers sensíveis. |
