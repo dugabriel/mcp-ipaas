@@ -13,6 +13,9 @@ export function integrationsPath(pageSize: number, page = 1): string {
 }
 export const MESSAGE_DETAIL_PATH = "/ipaas/api/v4/messages/";
 export const STEPS_PATH = "/ipaas/api/v3/steps/";
+// Campos minimos para avaliar_diagrama: metadados + o `flow` (planta do diagrama). NAO pede
+// dynamicIcons/icons/positions nem outros campos pesados/sensiveis.
+export const DIAGRAM_FIELDS_RETURN = "id,diagramId,flow,name,active,description,publishVersion,status";
 export const TRACEABILITY_FIELDS = ["status", "errorStack", "message", "messageId"] as const;
 
 export function tryParseJson(body: string | null | undefined): any | undefined {

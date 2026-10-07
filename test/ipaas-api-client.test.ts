@@ -170,3 +170,43 @@ describe("IpaasApiClient metrics endpoints", () => {
     expect(u.searchParams.get("forceUpdate")).toBe("false");
   });
 });
+
+describe("IpaasApiClient.getDiagramFlow", () => {
+  it("builds diagramId + fieldsReturn + pageSize and NO lastVersion when diagramId given", async () => {
+    let captured = "";
+    const fetchFn = vi.fn(async (url: string) => { captured = url; return { status: 200, text: async () => "{}" } as any; });
+    const { client } = clientWith(fetchFn);
+    await client.getDiagramFlow({ diagramId: "diag-1" });
+    const u = new URL(captured);
+    expect(u.pathname).toBe("/ipaas/api/v3/integrations");
+    expect(u.searchParams.get("diagramId")).toBe("diag-1");
+    expect(u.searchParams.get("fieldsReturn")).toBe("id,diagramId,flow,name,active,description,publishVersion,status");
+    expect(u.searchParams.get("pageSize")).toBe("1");
+    expect(u.searchParams.get("lastVersion")).toBeNull();
+    expect(u.searchParams.get("id")).toBeNull();
+  });
+
+  it("builds id + lastVersion=true (and no diagramId) when integrationId given", async () => {
+    let captured = "";
+    const fetchFn = vi.fn(async (url: string) => { captured = url; return { status: 200, text: async () => "{}" } as any; });
+    const { client } = clientWith(fetchFn);
+    await client.getDiagramFlow({ integrationId: "int-1" });
+    const u = new URL(captured);
+    expect(u.pathname).toBe("/ipaas/api/v3/integrations");
+    expect(u.searchParams.get("id")).toBe("int-1");
+    expect(u.searchParams.get("lastVersion")).toBe("true");
+    expect(u.searchParams.get("diagramId")).toBeNull();
+    expect(u.searchParams.get("pageSize")).toBe("1");
+  });
+
+  it("prefers diagramId over integrationId when both given", async () => {
+    let captured = "";
+    const fetchFn = vi.fn(async (url: string) => { captured = url; return { status: 200, text: async () => "{}" } as any; });
+    const { client } = clientWith(fetchFn);
+    await client.getDiagramFlow({ diagramId: "diag-1", integrationId: "int-1" });
+    const u = new URL(captured);
+    expect(u.searchParams.get("diagramId")).toBe("diag-1");
+    expect(u.searchParams.get("id")).toBeNull();
+    expect(u.searchParams.get("lastVersion")).toBeNull();
+  });
+});

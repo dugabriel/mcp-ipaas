@@ -25,3 +25,6 @@ Thumbs.db
 
 # Config MCP local da maquina (caminhos/DISPLAY/XAUTHORITY variam por ambiente)
 .kiro/settings/mcp.json
+
+# Pasta de trabalho do orquestrador de agentes (planos/revisoes; nao faz parte do codigo)
+.agents/

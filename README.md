@@ -115,6 +115,7 @@ O token muda a cada troca de empresa, então o login é em dois passos:
 | `listar_mensagens_filhas` | Mensagens filhas (SPLITTED) de uma mensagem original (`originMessageId`). |
 | `resumo_por_status` | Contagem de mensagens por status num período (barato, sem baixar as mensagens). Inclui filhas (ORIGINAL+SPLITTED). |
 | `panorama_saude` | Panorama proativo de saúde combinando `/metrics/commons`, `/messages/status` e `/metrics/diagrams-transactions`; inclui mensagens filhas (SPLITTED) por padrão. Compara erros com filhas vs só ORIGINAL e recomenda aprofundar quando a razão ≥ 1.5. |
+| `avaliar_diagrama` | Reconstrói a **planta/topologia** de um diagrama (componentes por tipo/label, caminho a partir do gatilho, sinais de Splitter/Global Error/Diagram Caller) para entender o **fluxo** — não é sobre saúde/erros. Aceita `diagramId`, `integrationId` ou `messageId`. Companheira de `detalhar_steps` (planta + caminho real da execução). Expõe só topologia, nunca `configurations` sensíveis. |
 
 > **Teto de amostragem:** leituras de coleção do Monitor têm teto rígido de **100 por chamada**;
 > para amostras maiores, pagine por janela de tempo (campo `nextWindow` na resposta).

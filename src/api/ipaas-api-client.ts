@@ -2,7 +2,7 @@ import type { IpaasConfig } from "../config/config.js";
 import type { ApiResponse, MessageQuery } from "../model/types.js";
 import type { SessionStore } from "../session/session-store.js";
 import { isOk, isUnauthorized } from "../model/types.js";
-import { tryParseJson, arrayItems } from "../tools/tool-helpers.js";
+import { tryParseJson, arrayItems, DIAGRAM_FIELDS_RETURN } from "../tools/tool-helpers.js";
 
 /** Assinatura do fetch, injetavel para teste sem rede. */
 export type FetchLike = typeof fetch;
@@ -12,6 +12,7 @@ const MESSAGES_STATUS_PATH = "/ipaas/api/v4/messages/status";
 const MESSAGES_FILTERS_PATH = "/ipaas/api/v4/messages/filters";
 const METRICS_COMMONS_PATH = "/ipaas/api/v3/metrics/commons";
 const METRICS_DIAGRAMS_TRANSACTIONS_PATH = "/ipaas/api/v3/metrics/diagrams-transactions";
+const INTEGRATIONS_PATH = "/ipaas/api/v3/integrations";
 const ALL_STATUSES = ["DONE", "ERROR", "PROCESSING", "REPROCESSED"];
 
 /** Resultado agregado de uma varredura paginada de mensagens. */
@@ -97,6 +98,25 @@ export class IpaasApiClient {
     params.set("refDate", refDate);
     params.set("forceUpdate", "false");
     return this.get(METRICS_COMMONS_PATH + "?" + params.toString());
+  }
+
+  /**
+   * Estrutura (planta/topologia) de um diagrama via /v3/integrations trazendo o campo `flow`.
+   * Resolve por `diagramId` (versao exata salva) OU por `integrationId` (versao atual, lastVersion=true).
+   * Reusa get() (Bearer + Cookie + 401 clear). Pede pageSize=1 e so os campos necessarios.
+   */
+  async getDiagramFlow(params: { diagramId?: string; integrationId?: string }): Promise<ApiResponse> {
+    const search = new URLSearchParams();
+    search.set("fieldsReturn", DIAGRAM_FIELDS_RETURN);
+    search.set("pageSize", "1");
+    // Precedencia: diagramId (versao exata) sobre integrationId (versao atual).
+    if (params.diagramId && params.diagramId.trim() !== "") {
+      search.set("diagramId", params.diagramId.trim());
+    } else if (params.integrationId && params.integrationId.trim() !== "") {
+      search.set("id", params.integrationId.trim());
+      search.set("lastVersion", "true");
+    }
+    return this.get(INTEGRATIONS_PATH + "?" + search.toString());
   }
 
   /** Volume de transacoes por diagrama/fluxo num intervalo (para ranquear os TOP fluxos). */

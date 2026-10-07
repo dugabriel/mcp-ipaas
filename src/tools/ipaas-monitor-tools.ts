@@ -317,7 +317,8 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
       description:
         "Detalha uma mensagem de execucao do Monitor do TOTVS iPaaS pelo seu id, com status, tempo de execucao, " +
         "componentes inicial/final e, quando houver, o errorStack. Distingue execucoes com erro (ERROR) de " +
-        "concluidas (DONE), em que o campo message e o payload enviado, nao um erro. Exige sessao ativa. Nunca expoe o token.",
+        "concluidas (DONE), em que o campo message e o payload enviado, nao um erro. Para entender o " +
+        "diagrama/fluxo por tras da mensagem, use avaliar_diagrama (aceita o messageId). Exige sessao ativa. Nunca expoe o token.",
       inputSchema: {
         messageId: z.string().describe("Identificador da mensagem no Monitor do iPaaS, ex.: abc-123."),
       },
@@ -388,7 +389,8 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         "componente a execucao falhou. Requer integrationId, createdDate e messageId. ATENCAO: a tool " +
         "listar_mensagens NAO fornece integrationId nem createdDate; obtenha os tres identificadores na " +
         "tela do Monitor do iPaaS. Steps sem componentDTO sao sinalizados como incompletos sem quebrar a " +
-        "resposta. Exige sessao ativa. Nunca expoe o token.",
+        "resposta. Para entender a planta/fluxo do diagrama por tras desses steps, use avaliar_diagrama. " +
+        "Exige sessao ativa. Nunca expoe o token.",
       inputSchema: {
         integrationId: z.string().describe("Identificador da integracao/fluxo (obtido na tela do Monitor)."),
         createdDate: z.string().describe("Data de criacao da mensagem usada no caminho (obtida na tela do Monitor)."),
@@ -839,6 +841,127 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
       }
     },
   );
+
+  server.registerTool(
+    "avaliar_diagrama",
+    {
+      description:
+        "Reconstroi a PLANTA (topologia/estrutura) de um diagrama do TOTVS iPaaS para entender o FLUXO: " +
+        "componentes por tipo/label, o caminho a partir do gatilho, e sinais de Splitter, Global Error e " +
+        "Diagram Caller (dependencias entre diagramas). NAO e sobre saude/erros/contagem de mensagens; e a " +
+        "companheira de detalhar_steps: a planta (esta tool) + o caminho real da execucao (detalhar_steps) " +
+        "mostram por onde a mensagem passou. Aceita UM identificador (precedencia: diagramId > integrationId > " +
+        "messageId): diagramId (versao exata salva), integrationId (versao atual do fluxo) ou messageId (resolve " +
+        "o diagrama a partir do detalhe da mensagem). SEGURANCA: expoe SO a topologia; nunca URLs, specs, headers, " +
+        "credenciais ou e-mails de configuracao. Exige sessao ativa. Nunca expoe o token.",
+      inputSchema: {
+        diagramId: z
+          .string()
+          .optional()
+          .describe("Id do diagrama (versao exata salva; muda a cada save). Tem precedencia sobre os demais."),
+        integrationId: z
+          .string()
+          .optional()
+          .describe("Id da integracao/fluxo (estavel; resolve a versao atual com lastVersion)."),
+        messageId: z
+          .string()
+          .optional()
+          .describe("Id de uma mensagem do Monitor; o diagrama e resolvido a partir do detalhe dela."),
+      },
+    },
+    async ({ diagramId, integrationId, messageId }) => {
+      try {
+        if (sessionStore.state() !== "ATIVA") return missingSession();
+        const blank = (v: string | undefined) => !v || v.trim() === "";
+        if (blank(diagramId) && blank(integrationId) && blank(messageId)) {
+          return jsonResponse({
+            status: "INVALID_INPUT",
+            message:
+              "Informe diagramId, integrationId ou messageId para avaliar o diagrama. Use listar_fluxos para " +
+              "localizar um fluxo pelo nome, ou pegue o messageId em listar_mensagens.",
+            nextStep: "listar_fluxos",
+          });
+        }
+
+        // Precedencia: diagramId > integrationId > messageId. So resolve por messageId quando os
+        // dois mais especificos nao vierem.
+        let resolvedDiagramId = blank(diagramId) ? undefined : diagramId!.trim();
+        let resolvedIntegrationId = blank(integrationId) ? undefined : integrationId!.trim();
+        const viaMessageId = !resolvedDiagramId && !resolvedIntegrationId && !blank(messageId);
+        // createdDate resolvido pelo detalhe da mensagem; detalhar_steps exige esse campo.
+        let resolvedCreatedDate: string | undefined;
+
+        if (viaMessageId) {
+          const detailResp = await apiClient.get(MESSAGE_DETAIL_PATH + encodeURIComponent(messageId!.trim()));
+          if (isUnauthorized(detailResp)) return sessionExpiredOnServer();
+          if (!isOk(detailResp)) {
+            return requestFailed(detailResp, "Nao foi possivel obter o detalhe da mensagem para resolver o diagrama.");
+          }
+          const detailRoot = tryParseJson(detailResp.body);
+          const detail = Array.isArray(detailRoot) && detailRoot.length > 0 ? detailRoot[0] : detailRoot;
+          resolvedDiagramId = (textOrUndefined(detail, "diagramId") as string | undefined) ?? undefined;
+          resolvedIntegrationId = (textOrUndefined(detail, "integrationId") as string | undefined) ?? undefined;
+          resolvedCreatedDate = (textOrUndefined(detail, "createdDate") as string | undefined) ?? undefined;
+          if (!resolvedDiagramId && !resolvedIntegrationId) {
+            return jsonResponse({
+              status: "DIAGRAM_NOT_RESOLVED",
+              message:
+                "A mensagem informada nao traz diagramId nem integrationId para localizar o diagrama. " +
+                "Informe diagramId ou integrationId diretamente.",
+              nextStep: "listar_fluxos",
+            });
+          }
+        }
+
+        const response = await apiClient.getDiagramFlow({
+          diagramId: resolvedDiagramId,
+          integrationId: resolvedIntegrationId,
+        });
+        if (isUnauthorized(response)) return sessionExpiredOnServer();
+        if (!isOk(response)) return requestFailed(response, "Nao foi possivel obter a estrutura do diagrama no iPaaS.");
+        const root = tryParseJson(response.body);
+        if (!root) {
+          return jsonResponse({
+            format: "TEXT",
+            message: "Resposta do iPaaS nao e JSON valido; segue o texto tratado.",
+            text: (response.body ?? "").trim(),
+          });
+        }
+        const item = pickDiagramItem(root);
+        if (!item || !item.flow) {
+          return jsonResponse({
+            status: "DIAGRAM_NOT_FOUND",
+            message:
+              "Nenhum diagrama com `flow` foi encontrado para o identificador informado. Confira o " +
+              "diagramId/integrationId (o diagramId muda a cada save; prefira integrationId para a versao atual).",
+            nextStep: "listar_fluxos",
+          });
+        }
+
+        const summary = summarizeFlow(item);
+        const result: Record<string, unknown> = {
+          ...summary,
+          focus:
+            "Esta visao e a PLANTA do fluxo (topologia). Para o caminho REAL de uma execucao, use detalhar_steps.",
+          nextStep: "detalhar_steps",
+          hint:
+            "Com integrationId + createdDate + messageId, chame detalhar_steps para ver por onde a mensagem passou.",
+        };
+        // Quando resolvido por messageId, devolve os ids ja prontos para detalhar_steps.
+        // createdDate vem do detalhe da mensagem (detalhar_steps exige os tres); se ausente, null.
+        if (viaMessageId) {
+          result.detalharStepsArgs = {
+            integrationId: resolvedIntegrationId ?? (summary.integrationId as string | null) ?? null,
+            createdDate: resolvedCreatedDate ?? null,
+            messageId: messageId!.trim(),
+          };
+        }
+        return jsonResponse(result);
+      } catch (err) {
+        return errorResponse("Failed to evaluate the iPaaS diagram flow", err);
+      }
+    },
+  );
 }
 
 function errorGroupKey(item: any): string {
@@ -864,4 +987,203 @@ function errorGroupKey(item: any): string {
 
 function truncate(value: string, max: number): string {
   return value.length <= max ? value : value.slice(0, max) + "...[truncado]";
+}
+
+// ---------------------------------------------------------------------------
+// avaliar_diagrama — extracao de TOPOLOGIA (planta) do campo `flow` do diagrama.
+// SEGURANCA: estas funcoes leem SOMENTE id/type/label/name/connections e, para o
+// Splitter, `configurations.subFlow` (apenas a topologia do subfluxo). Nunca emitem
+// `configurations` cru, `positions`, `connectionPath` nem `finalConnections`.
+// ---------------------------------------------------------------------------
+
+// Ids reservados do playbook: nunca contam como orfaos (sao gatilhos/inicio de subfluxos).
+const RESERVED_NODE_IDS = new Set([
+  "webhook-sync-trigger",
+  "webhook-hook-trigger",
+  "id-global-error",
+  "global-error-start",
+]);
+
+/** Nos de condicao tem id no formato "origem#destino" (CONDITION/OTHERWISE). */
+function isConditionNodeId(id: unknown): boolean {
+  return typeof id === "string" && id.includes("#");
+}
+
+/** Do envelope { items: [...] } devolve o primeiro item; aceita tambem o item cru. */
+function pickDiagramItem(root: any): any | undefined {
+  const items = arrayItems(root);
+  if (items.length > 0) return items[0];
+  // Se nao houver envelope mas o proprio root ja parecer um diagrama (tem flow), usa-o.
+  return root && typeof root === "object" && root.flow ? root : undefined;
+}
+
+/** label = label || name || null (sem jamais tocar em configurations). */
+function nodeLabel(node: any): string | null {
+  const label = textOrUndefined(node, "label");
+  if (typeof label === "string" && label.trim() !== "") return label;
+  const name = textOrUndefined(node, "name");
+  if (typeof name === "string" && name.trim() !== "") return name;
+  return null;
+}
+
+/** Lista plana de componentes { id, type, label, scope } a partir de um mapa de activities. */
+function collectComponents(activities: Record<string, any>, scope: string): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const [id, node] of Object.entries(activities)) {
+    out.push({
+      id,
+      type: (textOrUndefined(node, "type") as string | undefined) ?? null,
+      label: nodeLabel(node),
+      scope,
+    });
+  }
+  return out;
+}
+
+/**
+ * Travessia a partir de `start` seguindo connections.next, resolvendo os nos intermediarios
+ * "origem#destino" (CONDITION/OTHERWISE) em arestas legiveis. Protege contra ciclos com um Set.
+ * Produz `path` (sequencia "<type>: <label||id>") e `edges` ({from,to,via,label}).
+ */
+function traverseFlow(
+  activities: Record<string, any>,
+  start: string | undefined,
+): { path: string[]; edges: Array<Record<string, unknown>> } {
+  const path: string[] = [];
+  const edges: Array<Record<string, unknown>> = [];
+  if (!start || !activities[start]) return { path, edges };
+
+  const visited = new Set<string>();
+  const queue: string[] = [start];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const node = activities[current];
+    if (!node) continue;
+
+    // Nos de condicao sao resolvidos como arestas, nao entram no path como passo.
+    if (!isConditionNodeId(current)) {
+      const type = (textOrUndefined(node, "type") as string | undefined) ?? "UNKNOWN";
+      const label = nodeLabel(node) ?? current;
+      path.push(`${type}: ${label}`);
+    }
+
+    const next = node?.connections?.next;
+    const nextIds: string[] = Array.isArray(next) ? next.filter((v: unknown) => typeof v === "string") : [];
+    for (const nextId of nextIds) {
+      if (isConditionNodeId(nextId)) {
+        // Aresta via no de condicao: origem#destino. So o label do no de condicao, NUNCA conditions.
+        const condNode = activities[nextId];
+        const [from, to] = nextId.split("#");
+        edges.push({
+          from: from ?? current,
+          to: to ?? null,
+          via: (textOrUndefined(condNode, "type") as string | undefined) ?? "CONDITION",
+          label: condNode ? nodeLabel(condNode) : null,
+        });
+        if (to && !visited.has(to)) queue.push(to);
+        if (!visited.has(nextId)) queue.push(nextId);
+      } else {
+        if (!visited.has(nextId)) queue.push(nextId);
+      }
+    }
+  }
+  return { path, edges };
+}
+
+/**
+ * Orquestra a extracao da topologia e devolve o objeto base da resposta (sem focus/nextStep/hint,
+ * que o handler adiciona). SO topologia — nunca configurations cru/positions/finalConnections.
+ */
+function summarizeFlow(item: any): Record<string, unknown> {
+  const flow = item?.flow ?? {};
+  const activities: Record<string, any> =
+    flow.activities && typeof flow.activities === "object" ? flow.activities : {};
+  const start = typeof flow.start === "string" ? flow.start : undefined;
+  const functions = flow.functions && typeof flow.functions === "object" ? flow.functions : {};
+  const globalErrorFlow = flow.globalErrorFlow;
+
+  // trigger = type do no inicial.
+  const trigger = start ? ((textOrUndefined(activities[start], "type") as string | undefined) ?? null) : null;
+
+  // Componentes do fluxo principal.
+  const components = collectComponents(activities, "main");
+
+  // Subfluxo de cada Splitter (configurations.subFlow) — SO a topologia.
+  for (const [id, node] of Object.entries(activities)) {
+    if ((textOrUndefined(node, "type") as string | undefined) === "SPLIT") {
+      const subFlow = node?.configurations?.subFlow;
+      const subActivities =
+        subFlow?.activities && typeof subFlow.activities === "object" ? subFlow.activities : null;
+      if (subActivities) {
+        components.push(...collectComponents(subActivities, `splitter:${id}`));
+      }
+    }
+  }
+
+  // Subfluxo global de erro.
+  if (globalErrorFlow && typeof globalErrorFlow === "object" && globalErrorFlow.activities) {
+    const geActivities =
+      typeof globalErrorFlow.activities === "object" ? globalErrorFlow.activities : {};
+    components.push(...collectComponents(geActivities, "globalError"));
+  }
+
+  // Contagem por type SOBRE o fluxo principal (activities).
+  const typeCounts: Record<string, number> = {};
+  for (const node of Object.values(activities)) {
+    const type = textOrUndefined(node, "type") as string | undefined;
+    if (type) typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+  }
+
+  // Sinais de topologia.
+  const hasSplitter = Object.values(activities).some(
+    (n) => (textOrUndefined(n, "type") as string | undefined) === "SPLIT",
+  );
+  const hasGlobalError = !!(
+    globalErrorFlow &&
+    typeof globalErrorFlow === "object" &&
+    (globalErrorFlow.start || globalErrorFlow.activities)
+  );
+  const diagramCallers = Object.values(activities)
+    .filter((n) => (textOrUndefined(n, "type") as string | undefined) === "DIAGRAM_CALLER")
+    .map((n) => nodeLabel(n))
+    .filter((l): l is string => typeof l === "string");
+
+  // Orfaos: sem next e sem previous, exceto start, ids reservados e nos de condicao origem#destino.
+  const orphanNodes: string[] = [];
+  for (const [id, node] of Object.entries(activities)) {
+    if (id === start || RESERVED_NODE_IDS.has(id) || isConditionNodeId(id)) continue;
+    const next = node?.connections?.next;
+    const previous = node?.connections?.previous;
+    const hasNext = Array.isArray(next) && next.length > 0;
+    const hasPrevious = Array.isArray(previous) && previous.length > 0;
+    if (!hasNext && !hasPrevious) orphanNodes.push(id);
+  }
+
+  const { path, edges } = traverseFlow(activities, start);
+
+  return {
+    diagramId: (textOrUndefined(item, "diagramId") as string | undefined) ?? null,
+    integrationId: (textOrUndefined(item, "id") as string | undefined) ?? null,
+    metadata: {
+      name: (textOrUndefined(item, "name") as string | undefined) ?? null,
+      description: (textOrUndefined(item, "description") as string | undefined) ?? null,
+      status: (textOrUndefined(item, "status") as string | undefined) ?? null,
+      active: typeof item?.active === "boolean" ? item.active : null,
+      publishVersion: textOrUndefined(item, "publishVersion") ?? null,
+      trigger,
+    },
+    components,
+    path,
+    edges,
+    typeCounts,
+    nodeCount: Object.keys(activities).length,
+    functionCount: Object.keys(functions).length,
+    hasSplitter,
+    hasGlobalError,
+    hasDiagramCaller: diagramCallers.length > 0,
+    diagramCallers,
+    orphanNodes,
+  };
 }

@@ -634,4 +634,256 @@ describe("new tools from API mapping", () => {
     expect(parsed.sourcesUnavailable).toContain("metrics/commons");
     expect(parsed.sourcesUnavailable).toContain("metrics/diagrams-transactions");
   });
+
+  // --- avaliar_diagrama -----------------------------------------------------
+  // Fixtures minimas reproduzindo as 3 topologias reais. Empacotadas no envelope { items, hasNext }.
+
+  // 1) Ingest Production - Datalake Sentinela: WEBHOOK -> 1 REST. nodeCount 2.
+  function flowSimples() {
+    return {
+      items: [
+        {
+          id: "int-ingest",
+          diagramId: "diag-ingest",
+          name: "Ingest Production - Datalake Sentinela",
+          status: "PUBLISHED",
+          active: true,
+          publishVersion: 3,
+          description: "Ingestao datalake",
+          flow: {
+            start: "webhook-hook-trigger",
+            activities: {
+              "webhook-hook-trigger": { id: "webhook-hook-trigger", type: "WEBHOOK", label: "Webhook", connections: { next: ["rest-1"], previous: [] } },
+              "rest-1": { id: "rest-1", type: "REST", label: "POST-Datalake", connections: { next: [], previous: ["webhook-hook-trigger"] }, configurations: { url: "https://interno/datalake", accountId: "acc-secret" } },
+            },
+            functions: {},
+          },
+        },
+      ],
+      hasNext: false,
+    };
+  }
+
+  // 2) 10-Prospects-PROD: QUARTZ -> REST -> condicoes -> JAVASCRIPT -> REST -> SPLIT; com GLOBAL_ERROR.
+  // nodeCount 10, functionCount 6. typeCounts {REST:4,CONDITION:2,SPLIT:1,GLOBAL_ERROR:1,JAVASCRIPT:1,QUARTZ:1}.
+  function flowComplexo() {
+    const rest = (id: string, next: string[], prev: string[]) => ({ id, type: "REST", label: id, connections: { next, previous: prev } });
+    return {
+      items: [
+        {
+          id: "int-prospects",
+          diagramId: "diag-prospects",
+          name: "10-Prospects-PROD",
+          status: "PUBLISHED",
+          active: true,
+          publishVersion: 219,
+          description: "Prospects",
+          flow: {
+            start: "quartz-1",
+            activities: {
+              "quartz-1": { id: "quartz-1", type: "QUARTZ", label: "Timer", connections: { next: ["rest-a"], previous: [] } },
+              "rest-a": rest("rest-a", ["rest-a#js-1", "rest-a#rest-b"], ["quartz-1"]),
+              // dois nos de condicao origem#destino (type CONDITION)
+              "rest-a#js-1": { id: "rest-a#js-1", type: "CONDITION", label: "tem prospect", connections: { next: ["js-1"], previous: ["rest-a"] }, configurations: { conditions: "SENSIVEL" } },
+              "rest-a#rest-b": { id: "rest-a#rest-b", type: "CONDITION", label: "senao", connections: { next: ["rest-b"], previous: ["rest-a"] } },
+              "js-1": { id: "js-1", type: "JAVASCRIPT", label: "transforma", connections: { next: ["rest-c"], previous: ["rest-a#js-1"] } },
+              "rest-b": rest("rest-b", ["split-1"], ["rest-a#rest-b"]),
+              "rest-c": rest("rest-c", ["split-1"], ["js-1"]),
+              "split-1": { id: "split-1", type: "SPLIT", label: "divide lote", connections: { next: ["rest-d"], previous: ["rest-b", "rest-c"] }, configurations: { subFlow: { start: "splitter-start1", activities: { "splitter-start1": { id: "splitter-start1", type: "SPLIT_START", label: "inicio split", connections: { next: [], previous: [] } } } } } },
+              "rest-d": rest("rest-d", [], ["split-1"]),
+              // No GLOBAL_ERROR no fluxo principal (como no diagrama real).
+              "id-global-error": { id: "id-global-error", type: "GLOBAL_ERROR", label: "trata erro", connections: { next: [], previous: [] } },
+            },
+            functions: { f1: {}, f2: {}, f3: {}, f4: {}, f5: {}, f6: {} },
+            globalErrorFlow: {
+              start: "global-error-start",
+              activities: {
+                "global-error-start": { id: "global-error-start", type: "GLOBAL_ERROR", label: "trata erro", connections: { next: [], previous: [] } },
+              },
+            },
+          },
+        },
+      ],
+      hasNext: false,
+    };
+  }
+
+  // 3) COLETORA-BEYONDTRUST-SIEM_EVENTS-CLEANER: WEBHOOK -> DIAGRAM_CALLER + GLOBAL_ERROR. nodeCount 3.
+  function flowDependencia() {
+    return {
+      items: [
+        {
+          id: "int-cleaner",
+          diagramId: "diag-cleaner",
+          name: "COLETORA-BEYONDTRUST-SIEM_EVENTS-CLEANER",
+          status: "PUBLISHED",
+          active: true,
+          publishVersion: 7,
+          description: "Cleaner",
+          flow: {
+            start: "webhook-hook-trigger",
+            activities: {
+              "webhook-hook-trigger": { id: "webhook-hook-trigger", type: "WEBHOOK", label: "Webhook", connections: { next: ["caller-1"], previous: [] } },
+              "caller-1": { id: "caller-1", type: "DIAGRAM_CALLER", label: "chama limpeza", connections: { next: [], previous: ["webhook-hook-trigger"] } },
+              "id-global-error": { id: "id-global-error", type: "GLOBAL_ERROR", label: "trata erro", connections: { next: [], previous: [] } },
+            },
+            functions: {},
+            globalErrorFlow: { start: "global-error-start", activities: { "global-error-start": { id: "global-error-start", type: "GLOBAL_ERROR", label: "ge", connections: { next: [], previous: [] } } } },
+          },
+        },
+      ],
+      hasNext: false,
+    };
+  }
+
+  it("avaliar_diagrama (topologia simples) por diagramId: WEBHOOK -> REST", async () => {
+    let requested: any = null;
+    const api = { getDiagramFlow: async (p: any) => { requested = p; return { status: 200, body: JSON.stringify(flowSimples()) }; } };
+    const { call } = setup2(api);
+    const out = await call("avaliar_diagrama", { diagramId: "diag-ingest" });
+    const parsed = JSON.parse(out);
+    expect(requested).toEqual({ diagramId: "diag-ingest", integrationId: undefined });
+    expect(parsed.nodeCount).toBe(2);
+    expect(parsed.typeCounts).toEqual({ REST: 1, WEBHOOK: 1 });
+    expect(parsed.hasSplitter).toBe(false);
+    expect(parsed.hasGlobalError).toBe(false);
+    expect(parsed.hasDiagramCaller).toBe(false);
+    expect(parsed.diagramCallers).toEqual([]);
+    expect(parsed.metadata.trigger).toBe("WEBHOOK");
+    expect(parsed.components).toHaveLength(2);
+    expect(parsed.path[0]).toBe("WEBHOOK: Webhook");
+    expect(parsed.nextStep).toBe("detalhar_steps");
+    expect(out).not.toContain("token-secret");
+  });
+
+  it("avaliar_diagrama (topologia complexa) por integrationId: resolve lastVersion e extrai sinais", async () => {
+    let requested: any = null;
+    const api = { getDiagramFlow: async (p: any) => { requested = p; return { status: 200, body: JSON.stringify(flowComplexo()) }; } };
+    const { call } = setup2(api);
+    const out = await call("avaliar_diagrama", { integrationId: "int-prospects" });
+    const parsed = JSON.parse(out);
+    expect(requested).toEqual({ diagramId: undefined, integrationId: "int-prospects" });
+    expect(parsed.nodeCount).toBe(10);
+    expect(parsed.functionCount).toBe(6);
+    expect(parsed.typeCounts).toEqual({ REST: 4, CONDITION: 2, SPLIT: 1, GLOBAL_ERROR: 1, JAVASCRIPT: 1, QUARTZ: 1 });
+    expect(parsed.hasSplitter).toBe(true);
+    expect(parsed.hasGlobalError).toBe(true);
+    expect(parsed.diagramCallers).toEqual([]);
+    expect(parsed.metadata.status).toBe("PUBLISHED");
+    expect(parsed.metadata.active).toBe(true);
+    expect(parsed.metadata.publishVersion).toBe(219);
+    expect(parsed.metadata.trigger).toBe("QUARTZ");
+    // subFlow do splitter e globalError entram em components com scope marcado.
+    expect(parsed.components.some((c: any) => c.scope === "splitter:split-1")).toBe(true);
+    expect(parsed.components.some((c: any) => c.scope === "globalError")).toBe(true);
+    // arestas via condicao resolvem origem#destino, SEM vazar o conteudo das conditions.
+    expect(parsed.edges.length).toBeGreaterThanOrEqual(1);
+    expect(out).not.toContain("SENSIVEL");
+  });
+
+  it("avaliar_diagrama (topologia com dependencia): DIAGRAM_CALLER + GLOBAL_ERROR", async () => {
+    const api = { getDiagramFlow: async () => ({ status: 200, body: JSON.stringify(flowDependencia()) }) };
+    const { call } = setup2(api);
+    const out = await call("avaliar_diagrama", { diagramId: "diag-cleaner" });
+    const parsed = JSON.parse(out);
+    expect(parsed.nodeCount).toBe(3);
+    expect(parsed.hasDiagramCaller).toBe(true);
+    expect(parsed.diagramCallers).toEqual(["chama limpeza"]);
+    expect(parsed.hasGlobalError).toBe(true);
+    expect(parsed.typeCounts).toEqual({ WEBHOOK: 1, DIAGRAM_CALLER: 1, GLOBAL_ERROR: 1 });
+  });
+
+  it("avaliar_diagrama NAO vaza configurations (MAIL/REST/JOLT), positions, nem connectionPath", async () => {
+    const envelope = {
+      items: [
+        {
+          id: "int-sec",
+          diagramId: "diag-sec",
+          name: "Fluxo sensivel",
+          status: "PUBLISHED",
+          active: true,
+          publishVersion: 1,
+          flow: {
+            start: "webhook-hook-trigger",
+            activities: {
+              "webhook-hook-trigger": { id: "webhook-hook-trigger", type: "WEBHOOK", label: "Webhook", positions: { x: 10, y: 20 }, connections: { next: ["rest-x"], previous: [] } },
+              "rest-x": { id: "rest-x", type: "REST", label: "chama API", connections: { next: ["jolt-x"], previous: ["webhook-hook-trigger"], connectionPath: "M0,0 L10,10", finalConnections: ["z"] }, configurations: { url: "https://secret-host/api", accountId: "ACCT-9999", headers: { Authorization: "Bearer super-secret-token" } } },
+              "jolt-x": { id: "jolt-x", type: "JOLT", label: "mapeia", connections: { next: ["mail-x"], previous: ["rest-x"] }, configurations: { spec: "[{\"operation\":\"shift\",\"spec\":{\"a\":\"b\"}}]" } },
+              "mail-x": { id: "mail-x", type: "MAIL", label: "notifica", connections: { next: [], previous: ["jolt-x"] }, configurations: { to: "pessoa@empresa.com", subject: "alerta", body: "corpo-sigiloso-do-email" } },
+            },
+            functions: {},
+          },
+        },
+      ],
+      hasNext: false,
+    };
+    const api = { getDiagramFlow: async () => ({ status: 200, body: JSON.stringify(envelope) }) };
+    const { call } = setup2(api);
+    const out = await call("avaliar_diagrama", { diagramId: "diag-sec" });
+    // Topologia extraida corretamente...
+    const parsed = JSON.parse(out);
+    expect(parsed.typeCounts).toEqual({ WEBHOOK: 1, REST: 1, JOLT: 1, MAIL: 1 });
+    // ...mas NADA sensivel vaza.
+    expect(out).not.toContain("configurations");
+    expect(out).not.toContain("positions");
+    expect(out).not.toContain("connectionPath");
+    expect(out).not.toContain("finalConnections");
+    expect(out).not.toContain("pessoa@empresa.com");
+    expect(out).not.toContain("corpo-sigiloso-do-email");
+    expect(out).not.toContain("https://secret-host/api");
+    expect(out).not.toContain("ACCT-9999");
+    expect(out).not.toContain("super-secret-token");
+    expect(out).not.toContain("shift");
+  });
+
+  it("avaliar_diagrama por messageId resolve diagrama e inclui detalharStepsArgs", async () => {
+    const messageDetail = JSON.stringify({ id: "msg-1", diagramId: "diag-ingest", integrationId: "int-ingest", createdDate: "2024-05-01T12:00:00Z", status: "ERROR" });
+    let messageCalled = false;
+    let flowCalled = false;
+    const api = {
+      get: async (path: string) => { messageCalled = true; expect(path).toContain("msg-1"); return { status: 200, body: messageDetail }; },
+      getDiagramFlow: async (p: any) => { flowCalled = true; expect(p.diagramId).toBe("diag-ingest"); return { status: 200, body: JSON.stringify(flowSimples()) }; },
+    };
+    const { call } = setup2(api);
+    const out = await call("avaliar_diagrama", { messageId: "msg-1" });
+    const parsed = JSON.parse(out);
+    expect(messageCalled).toBe(true);
+    expect(flowCalled).toBe(true);
+    expect(parsed.detalharStepsArgs).toEqual({ integrationId: "int-ingest", createdDate: "2024-05-01T12:00:00Z", messageId: "msg-1" });
+    expect(parsed.nodeCount).toBe(2);
+  });
+
+  it("avaliar_diagrama com diagramId + messageId NAO chama o detalhe da mensagem (precedencia)", async () => {
+    let messageCalled = false;
+    const api = {
+      get: async () => { messageCalled = true; return { status: 200, body: "{}" }; },
+      getDiagramFlow: async () => ({ status: 200, body: JSON.stringify(flowSimples()) }),
+    };
+    const { call } = setup2(api);
+    const out = await call("avaliar_diagrama", { diagramId: "diag-ingest", messageId: "msg-1" });
+    expect(messageCalled).toBe(false);
+    expect(JSON.parse(out).nodeCount).toBe(2);
+  });
+
+  it("avaliar_diagrama sem nenhum id -> INVALID_INPUT e nao chama a API", async () => {
+    let called = false;
+    const api = { getDiagramFlow: async () => { called = true; return { status: 200, body: "{}" }; } };
+    const { call } = setup2(api);
+    const out = await call("avaliar_diagrama", {});
+    expect(out).toContain("INVALID_INPUT");
+    expect(called).toBe(false);
+  });
+
+  it("avaliar_diagrama sem sessao -> missingSession", async () => {
+    const sessionStore = new SessionStore();
+    const server = new FakeMcpServer();
+    registerIpaasTools(server as any, { config, sessionStore, apiClient: { getDiagramFlow: async () => { throw new Error("should not call"); } } as any, authService: {} as any });
+    const out = (await server.handlers.get("avaliar_diagrama")!({ diagramId: "d" })).content[0]!.text;
+    expect(out).toContain("iniciar_login_ipaas");
+  });
+
+  it("avaliar_diagrama 401 -> SESSION_EXPIRED", async () => {
+    const { call } = setup2({ getDiagramFlow: async () => ({ status: 401, body: "no" }) });
+    expect(await call("avaliar_diagrama", { diagramId: "d" })).toContain("SESSION_EXPIRED");
+  });
 });
