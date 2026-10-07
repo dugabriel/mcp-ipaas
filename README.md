@@ -111,9 +111,10 @@ O token muda a cada troca de empresa, então o login é em dois passos:
 | `listar_mensagens` | Amostra de mensagens do Monitor por período, status, `integrationIds`, `projectIds` e `sourceTypes`. Teto de 100/chamada; pagina por janela de tempo (`nextWindow`). |
 | `detalhar_mensagem` | Detalhe de uma mensagem por id (status, tempos, componentes, erro). Distingue DONE de ERROR. |
 | `detalhar_steps` | Steps de execução de uma mensagem; destaca o componente e o erro, sem expor headers sensíveis. |
-| `resumir_erros` | Agrega os erros do período por componente/fluxo, com contagem ordenada. |
+| `resumir_erros` | Agrega os erros do período por componente/fluxo, com contagem ordenada. Varre internamente em lotes de ≤100/request; use `incluirFilhas=true` para incluir as filhas (SPLITTED). |
 | `listar_mensagens_filhas` | Mensagens filhas (SPLITTED) de uma mensagem original (`originMessageId`). |
-| `resumo_por_status` | Contagem de mensagens por status num período (barato, sem baixar as mensagens). |
+| `resumo_por_status` | Contagem de mensagens por status num período (barato, sem baixar as mensagens). Inclui filhas (ORIGINAL+SPLITTED). |
+| `panorama_saude` | Panorama proativo de saúde combinando `/metrics/commons`, `/messages/status` e `/metrics/diagrams-transactions`; inclui mensagens filhas (SPLITTED) por padrão. Compara erros com filhas vs só ORIGINAL e recomenda aprofundar quando a razão ≥ 1.5. |
 
 > **Teto de amostragem:** leituras de coleção do Monitor têm teto rígido de **100 por chamada**;
 > para amostras maiores, pagine por janela de tempo (campo `nextWindow` na resposta).
@@ -129,6 +130,7 @@ O token muda a cada troca de empresa, então o login é em dois passos:
 | `IPAAS_MONITOR_DEFAULT_LIMIT` | `20` | Amostra padrão quando `limit` não é informado. |
 | `IPAAS_MONITOR_MAX_LIMIT` | `100` | Teto rígido de registros por chamada. |
 | `IPAAS_MONITOR_DEFAULT_WINDOW_MS` | `86400000` | Janela padrão (24h, ms) quando as datas são omitidas. |
+| `IPAAS_MONITOR_MAX_PAGES` | `50` | Teto de páginas na varredura interna (`resumir_erros`); ~5000 registros com pageSize 100. |
 | `IPAAS_DEV_TOOLS` | — | `1` ativa tools de desenvolvimento para mapear novas APIs (`_debug_get`). |
 | `IPAAS_USE_SYSTEM_BROWSER` | — | `true` usa o navegador do sistema no login (tenta Chrome, depois Edge, depois o Chromium do Playwright). Útil no Windows ou em qualquer ambiente onde o download do Chromium falhe por proxy/TLS corporativo. A sessão continua isolada (não usa o perfil pessoal). |
 

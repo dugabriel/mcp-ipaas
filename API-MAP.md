@@ -25,14 +25,61 @@ Observacao: a LISTAGEM NAO traz o stack/erro; o texto do erro vem no DETALHE (ca
 Campos: status, executionTime, initialComponent, finalComponent, e `message` (quando ERROR,
 o `message` e o proprio stack trace; quando DONE, e o payload enviado). `messageId` nao vem; o id e `id`.
 
-### GET /ipaas/api/v4/messages/status  (contagem por status)  [A CONFIRMAR corpo]
-Query: `initialDate`, `finalDate` (ISO Z), `status` (repetivel). Retorna totais por status (resumo barato).
+### GET /ipaas/api/v4/messages/status  (contagem por status) — CORPO CONFIRMADO (DevTools 2026-10-07)
+Query: `initialDate`, `finalDate` (ISO Z), `status` (repetivel). Aceita tambem `id` (vazio no front).
+NAO envia `sourceTypes` na chamada do front. CONFIRMADO (DevTools 2026-10-07, segunda sessao) que a
+contagem JA INCLUI ORIGINAL + SPLITTED: no mesmo periodo/status, /v4/messages/status deu total=91843,
+batendo com /v4/messages?sourceTypes=ORIGINAL&sourceTypes=SPLITTED (total=91875) e NAO com
+/v4/messages?sourceTypes=ORIGINAL (total=82387). A diferenca ~82k vs ~91k sao as mensagens filhas.
+Para isolar SO as originais, use /v4/messages com sourceTypes=ORIGINAL e leia o `total` do envelope
+(o /status nao e usado com filtro de origem pelo front; nao foi confirmado se o /status respeita
+sourceTypes, entao o baseline so-ORIGINAL do panorama_saude usa /v4/messages, que comprovadamente respeita).
+Corpo real:
+```json
+{"messages":[{"status":"PROCESSING","size":2},{"status":"DONE","size":86995},{"status":"ERROR","size":1276}],"total":88273}
+```
+ATENCAO: o formato e `{ messages: [{status, size}], total }` — NAO e um mapa `{DONE: n, ERROR: n}`.
+Status ausentes (ex.: REPROCESSED com zero) simplesmente nao aparecem no array.
 
-### GET /ipaas/api/v3/metrics/diagrams-transactions  [A CONFIRMAR corpo]
-Query: `initialDate`, `endDate` (YYYY-MM-DD), `forceUpdate`. Metricas de transacoes por diagrama.
+### GET /ipaas/api/v3/metrics/commons  (agregado da conta) — CORPO CONFIRMADO (DevTools 2026-10-07)
+Query: `refDate` (YYYY-MM-DD), `forceUpdate`. Resumo barato de UMA chamada, agregado da conta inteira.
+Inclui `totalMessages`, `totalMessagesSuccess`, `totalMessagesError` (contagem global, aparentemente
+incluindo filhas), alem de `planName`, `projects`, `diagrams`, `messagesPerMinute`, `avgExecutionTime`,
+`percentUsage`, `maxMessages`.
+```json
+{"planName":"ENTERPRISE","projects":12,"diagrams":246,"totalMessages":797597,"maxMessages":10000000,"totalMessagesSuccess":781504,"totalMessagesError":16398,"percentUsage":7.97597,"messagesPerMinute":41,"avgExecutionTime":4,...}
+```
+
+### GET /ipaas/api/v3/metrics/diagrams-transactions  — CORPO CONFIRMADO (DevTools 2026-10-07)
+Query: `initialDate`, `endDate` (YYYY-MM-DD), `forceUpdate`. Total de mensagens POR DIAGRAMA/FLUXO no periodo.
+Corpo: `{ totalMessages: number, diagramsTransactions: [{ totalMessages, integrationId, diagramName, projectName }] }`.
+Nao traz quebra por status (so volume total por fluxo); util para achar os fluxos de maior volume.
+```json
+{"totalMessages":9993053,"diagramsTransactions":[{"totalMessages":9022,"integrationId":"01b6...","diagramName":"CPARINTEG-PaginationEconomicGroups","projectName":"Coletora-Plataformas-AR"}, ...]}
+```
 
 ### GET /ipaas/api/v3/integrations  (listagem de fluxos)
 Query: `page`, `pageSize`, `lastVersion=true`, `fieldsReturn=id,diagramId,name,status`.
+
+### GET /ipaas/api/v3/integrations?diagramId={diagramId}&fieldsReturn=...,flow,...  (ESTRUTURA do diagrama) — CONFIRMADO (DevTools 2026-10-07)
+Query observada: `diagramId`, `fieldsReturn=id,diagramId,flow,dynamicIcons,icons,name,active,description,sketchVersion,publishVersion,status,templateVersion,createdDate,userId,userName`, `pageSize=9999`, `expand=project`.
+Envelope `{ items: [...], hasNext }`. Cada item e um diagrama/integracao e o campo `flow` traz o MAPEAMENTO
+COMPLETO da diagramacao (a "planta" do fluxo). Estrutura do `flow`:
+- `start`: id do no inicial.
+- `activities`: mapa { nodeId -> no }. Cada no: `id`, `type` (WEBHOOK, REST, JOLT, CONDITION, GENERATOR,
+  DIAGRAM_CALLER, MAIL, GLOBAL_ERROR, ...), `label` (legivel), `name`, `componentId`/`serviceId`,
+  `connections: { next:[ids], previous:[ids], finalConnections:[{connectionId, connectionPath(SVG)}] }`,
+  `positions` (coords no builder) e `configurations` (DETALHES SENSIVEIS: urls REST, specs Jolt, headers,
+  accountId, condicoes, e no MAIL ha e-mails de pessoas).
+- `functions`: mapa de funcoes intermediarias (ex.: FUNCTION_AGGREGATE) com `connections`.
+- `globalErrorFlow`: subfluxo de tratamento de erro do diagrama ({ start, activities }), quando existe.
+Metadados do item: `name`, `description`, `publishVersion`, `sketchVersion`, `status` (PUBLISHED/...),
+`active`, `icons` (nos de inicio/aplicacoes), `project` (via expand), `userName`.
+USO para tool `avaliar_diagrama`: reconstruir a topologia (percorrer `start` -> `connections.next`),
+listar componentes por tipo/label, detectar presenca de `globalErrorFlow` (tratamento de erro),
+nos orfaos (sem next/previous), Diagram Callers (dependencias entre diagramas), status/versao.
+ATENCAO SEGURANCA: extrair SO a topologia (type/label/connections/flags). NAO expor `configurations`
+cru (contem urls, specs, headers, accountId e e-mails de pessoas no MAIL) — mesmo cuidado dos steps.
 
 ### GET /ipaas/api/v4/messages/filters  (filtros disponiveis do Monitor) — confirmado
 Sem query. Retorna integracoes e projetos que alimentam integrationIds/projectIds em /v4/messages.
@@ -50,8 +97,8 @@ Os tres identificadores vem da LISTAGEM /v4/messages (id, integrationId, created
 ### PUT /ipaas/api/v3/settings/user-settings/{userId}  (preferencias do usuario) [nao prioritario]
 
 ## A mapear
-- Corpo de /v4/messages/status e /metrics/diagrams-transactions.
 - Endpoints de detalhe de fluxo/diagrama, credenciais/conexoes, agendamentos.
+  (Corpos de /v4/messages/status, /v3/metrics/commons e /v3/metrics/diagrams-transactions ja confirmados — ver acima.)
 
 ## Descobertas adicionais (navegacao DevTools, telas de detalhe/splitter)
 
@@ -73,7 +120,7 @@ Os tres identificadores vem da LISTAGEM /v4/messages (id, integrationId, created
 
 ### Outros
 - POST /ipaas/api/v3/visualization-audits (auditoria de visualizacao; nao prioritario)
-- GET /ipaas/api/v4/messages/status (contagem por status) e /v3/metrics/diagrams-transactions (metricas) — corpos a confirmar.
+- GET /ipaas/api/v4/messages/status (contagem por status) e /v3/metrics/diagrams-transactions (metricas) — corpos confirmados (ver acima).
 
 ## Hierarquia de mensagens splitted (navegacao confirmada)
 - UI: /message/{idFilha}?messages={idOriginal}

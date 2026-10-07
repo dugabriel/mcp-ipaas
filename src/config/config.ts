@@ -3,6 +3,8 @@ export interface MonitorConfig {
   defaultLimit: number;
   maxLimit: number;
   defaultWindowMs: number;
+  /** Teto de paginas na varredura interna (scanMessages); evita percorrer o ambiente inteiro. */
+  maxPages: number;
 }
 
 export interface IpaasConfig {
@@ -34,6 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): IpaasConfig {
       defaultLimit: num(env.IPAAS_MONITOR_DEFAULT_LIMIT, 20),
       maxLimit: num(env.IPAAS_MONITOR_MAX_LIMIT, 100),
       defaultWindowMs: num(env.IPAAS_MONITOR_DEFAULT_WINDOW_MS, 24 * HOUR_MS),
+      maxPages: num(env.IPAAS_MONITOR_MAX_PAGES, 50),
     },
   };
 }

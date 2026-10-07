@@ -172,6 +172,38 @@ export function normalizeMessageFilters(root: any): {
   return { integrations, projects };
 }
 
+/** Contagem normalizada por status a partir do resumo de /v4/messages/status. */
+export interface StatusSummary {
+  DONE: number;
+  ERROR: number;
+  PROCESSING: number;
+  REPROCESSED: number;
+  total: number;
+}
+
+/**
+ * Normaliza o corpo real de /v4/messages/status — `{ messages: [{status, size}], total }` — num
+ * objeto por status com ausentes = 0. Status que nao aparecem no array vem zerados. Robusto a
+ * corpos inesperados (retorna tudo zerado). O endpoint ja conta ORIGINAL+SPLITTED (inclui filhas).
+ */
+export function parseStatusSummary(root: any): StatusSummary {
+  const summary: StatusSummary = { DONE: 0, ERROR: 0, PROCESSING: 0, REPROCESSED: 0, total: 0 };
+  const messages = Array.isArray(root?.messages) ? root.messages : [];
+  for (const entry of messages) {
+    const status = textOrUndefined(entry, "status");
+    const size = entry?.size;
+    if (typeof status === "string" && status in summary && typeof size === "number") {
+      (summary as any)[status] += size;
+    }
+  }
+  if (typeof root?.total === "number") {
+    summary.total = root.total;
+  } else {
+    summary.total = summary.DONE + summary.ERROR + summary.PROCESSING + summary.REPROCESSED;
+  }
+  return summary;
+}
+
 /** Filtra por nome (case-insensitive); vazio/indefinido devolve a lista inteira. */
 export function filterByName<T extends { name: string | null }>(items: T[], search: string | undefined): T[] {
   if (!search || search.trim() === "") return items;

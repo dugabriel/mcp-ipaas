@@ -98,3 +98,75 @@ describe("IpaasApiClient.getMessages clamp", () => {
     expect(p.get("sourceTypes")).toBe("ORIGINAL");
   });
 });
+
+describe("IpaasApiClient.scanMessages", () => {
+  it("paginates until hasNext=false and accumulates all items", async () => {
+    // 230 registros com pageSize 100 => paginas de 100,100,30; hasNext true,true,false.
+    const pages = [
+      { items: Array.from({ length: 100 }, (_, i) => ({ id: `a${i}` })), hasNext: true, total: 230 },
+      { items: Array.from({ length: 100 }, (_, i) => ({ id: `b${i}` })), hasNext: true, total: 230 },
+      { items: Array.from({ length: 30 }, (_, i) => ({ id: `c${i}` })), hasNext: false, total: 230 },
+    ];
+    const pageSizes: string[] = [];
+    const pageParams: string[] = [];
+    let idx = 0;
+    const fetchFn = vi.fn(async (url: string) => {
+      const sp = new URL(url).searchParams;
+      pageSizes.push(sp.get("pageSize")!);
+      pageParams.push(sp.get("page")!);
+      return { status: 200, text: async () => JSON.stringify(pages[idx++]) } as any;
+    });
+    const { client } = clientWith(fetchFn);
+    const scan = await client.scanMessages({ statuses: ["ERROR"], limit: 100 });
+    expect(scan.items).toHaveLength(230);
+    expect(scan.pagesFetched).toBe(3);
+    expect(scan.scanComplete).toBe(true);
+    expect(scan.total).toBe(230);
+    expect(pageSizes).toEqual(["100", "100", "100"]);
+    expect(pageParams).toEqual(["1", "2", "3"]);
+    expect(pageSizes.every((s) => Number(s) <= 100)).toBe(true);
+  });
+
+  it("respects maxPages and marks scanComplete=false", async () => {
+    const fetchFn = vi.fn(async () => ({ status: 200, text: async () => JSON.stringify({ items: [{ id: "x" }], hasNext: true, total: 9999 }) }) as any);
+    const { client } = clientWith(fetchFn);
+    const scan = await client.scanMessages({ statuses: ["ERROR"], limit: 100 }, { maxPages: 2 });
+    expect(scan.pagesFetched).toBe(2);
+    expect(scan.scanComplete).toBe(false);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops and returns lastResponse on a non-OK response (e.g. 401)", async () => {
+    const fetchFn = vi.fn(async () => ({ status: 401, text: async () => "no" }) as any);
+    const { client } = clientWith(fetchFn);
+    const scan = await client.scanMessages({ statuses: ["ERROR"] });
+    expect(scan.lastResponse.status).toBe(401);
+    expect(scan.pagesFetched).toBe(0);
+    expect(scan.scanComplete).toBe(false);
+  });
+});
+
+describe("IpaasApiClient metrics endpoints", () => {
+  it("getAccountMetrics builds refDate + forceUpdate on /v3/metrics/commons", async () => {
+    let captured = "";
+    const fetchFn = vi.fn(async (url: string) => { captured = url; return { status: 200, text: async () => "{}" } as any; });
+    const { client } = clientWith(fetchFn);
+    await client.getAccountMetrics("2024-05-10");
+    const u = new URL(captured);
+    expect(u.pathname).toBe("/ipaas/api/v3/metrics/commons");
+    expect(u.searchParams.get("refDate")).toBe("2024-05-10");
+    expect(u.searchParams.get("forceUpdate")).toBe("false");
+  });
+
+  it("getDiagramsTransactions builds initialDate/endDate on /v3/metrics/diagrams-transactions", async () => {
+    let captured = "";
+    const fetchFn = vi.fn(async (url: string) => { captured = url; return { status: 200, text: async () => "{}" } as any; });
+    const { client } = clientWith(fetchFn);
+    await client.getDiagramsTransactions("2024-05-01", "2024-05-10");
+    const u = new URL(captured);
+    expect(u.pathname).toBe("/ipaas/api/v3/metrics/diagrams-transactions");
+    expect(u.searchParams.get("initialDate")).toBe("2024-05-01");
+    expect(u.searchParams.get("endDate")).toBe("2024-05-10");
+    expect(u.searchParams.get("forceUpdate")).toBe("false");
+  });
+});

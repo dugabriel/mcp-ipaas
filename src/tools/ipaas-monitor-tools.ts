@@ -18,6 +18,7 @@ import {
   extractItemTimestamp,
   normalizeMessageFilters,
   filterByName,
+  parseStatusSummary,
 } from "./tool-helpers.js";
 
 const isoHint = "ISO-8601 com sufixo Z, ex.: 2024-01-01T00:00:00Z";
@@ -465,16 +466,23 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
     {
       description:
         "Resume os erros do Monitor do TOTVS iPaaS no periodo, agrupando por tipo/mensagem e retornando a " +
-        "contagem ordenada do mais frequente ao menos frequente. Trabalha sobre uma AMOSTRA de mensagens ERROR " +
-        "com teto rigido de 100 por chamada; informa a janela usada. Quando nao ha datas, usa a janela padrao " +
-        "(ultimas 24h). Se nao houver erros, indica ambiente limpo. Exige sessao ativa. Nunca expoe o token.",
+        "contagem ordenada do mais frequente ao menos frequente. Varre as mensagens ERROR internamente em lotes " +
+        "de ate 100 por request (varias paginas, respeitando o teto por chamada), somando as agregacoes; informa " +
+        "a janela usada. Use incluirFilhas=true para incluir tambem as mensagens filhas (SPLITTED) de Splitter " +
+        "(padrao FALSE, so ORIGINAL). Quando a varredura atinge o teto de paginas, 'scanComplete' vira false e " +
+        "'truncated' true, com dica para estreitar a janela. Quando nao ha datas, usa a janela padrao (ultimas 24h). " +
+        "Se nao houver erros, indica ambiente limpo. Exige sessao ativa. Nunca expoe o token.",
       inputSchema: {
         initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}.`),
         finalDate: z.string().optional().describe(`Fim da janela em ${isoHint}.`),
-        limit: z.number().int().optional().describe("Tamanho da amostra desejado; teto rigido de 100 por chamada."),
+        limit: z.number().int().optional().describe("Tamanho de cada lote na varredura; teto rigido de 100 por request."),
+        incluirFilhas: z
+          .boolean()
+          .optional()
+          .describe("Inclui as mensagens filhas (SPLITTED) alem das ORIGINAL. Padrao FALSE."),
       },
     },
-    async ({ initialDate, finalDate, limit }) => {
+    async ({ initialDate, finalDate, limit, incluirFilhas }) => {
       try {
         if (sessionStore.state() !== "ATIVA") return missingSession();
         let parsedInitial: Date | undefined;
@@ -489,12 +497,20 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
             example: "2024-01-01T00:00:00Z",
           });
         }
-        const response = await apiClient.getMessages({
-          statuses: ["ERROR"],
-          initialDate: parsedInitial,
-          finalDate: parsedFinal,
-          limit,
-        });
+        // incluirFilhas=true => varre ORIGINAL+SPLITTED; padrao so ORIGINAL (nao envia sourceTypes).
+        const sourceTypes = incluirFilhas ? ["ORIGINAL", "SPLITTED"] : undefined;
+        // Varredura paginada: cada request <=100; soma as agregacoes de todas as paginas percorridas.
+        const scan = await apiClient.scanMessages(
+          {
+            statuses: ["ERROR"],
+            sourceTypes,
+            initialDate: parsedInitial,
+            finalDate: parsedFinal,
+            limit,
+          },
+          { maxPages: config.monitor.maxPages },
+        );
+        const response = scan.lastResponse;
         if (isUnauthorized(response)) return sessionExpiredOnServer();
         if (response.status === 400) {
           return jsonResponse({
@@ -510,15 +526,13 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         const end = parsedFinal ?? new Date();
         const start = parsedInitial ?? new Date(end.getTime() - config.monitor.defaultWindowMs);
         const window = { initialDate: start.toISOString(), finalDate: end.toISOString() };
-        const cap = Math.max(1, Math.min(limit ?? config.monitor.defaultLimit, config.monitor.maxLimit));
-        const root = tryParseJson(response.body);
-        const allItems = root ? arrayItems(root) : [];
-        const items = allItems.slice(0, cap);
+        const items = scan.items;
         if (items.length === 0) {
           return jsonResponse({
             status: "NO_ERRORS",
             message: "Nenhum erro encontrado na janela: ambiente limpo no periodo.",
             window,
+            incluiFilhas: incluirFilhas === true,
           });
         }
         const counts = new Map<string, number>();
@@ -529,14 +543,28 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         const errors = [...counts.entries()]
           .sort((a, b) => b[1] - a[1])
           .map(([type, count]) => ({ type, count }));
-        return jsonResponse({
+        const truncated = !scan.scanComplete;
+        const result: Record<string, unknown> = {
           sampling: true,
           sampleSize: items.length,
           distinctErrorTypes: errors.length,
+          pagesFetched: scan.pagesFetched,
+          scanComplete: scan.scanComplete,
+          truncated,
+          incluiFilhas: incluirFilhas === true,
+          total: scan.total,
           window,
-          note: "Amostragem limitada (teto de 100 por chamada); nao representa a totalidade dos erros.",
+          note: scan.scanComplete
+            ? "Varredura completa da janela (todas as paginas percorridas, ate 100 por request)."
+            : "Varredura interrompida pelo teto de paginas; o resumo cobre apenas as mensagens ja percorridas.",
           errors,
-        });
+        };
+        if (truncated) {
+          result.refineHint =
+            "A varredura atingiu o teto de paginas antes de esgotar o periodo. Estreite a janela " +
+            "(initialDate/finalDate) ou filtre por fluxo para cobrir todos os erros.";
+        }
+        return jsonResponse(result);
       } catch (err) {
         return errorResponse("Failed to summarize iPaaS errors", err);
       }
@@ -618,12 +646,196 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         const end = parsedFinal ?? new Date();
         const start = parsedInitial ?? new Date(end.getTime() - config.monitor.defaultWindowMs);
         const parsed = tryParseJson(response.body);
+        if (!parsed) {
+          return jsonResponse({
+            format: "TEXT",
+            message: "Resposta do iPaaS nao e JSON valido; segue o texto tratado.",
+            text: (response.body ?? "").trim(),
+          });
+        }
+        // Corpo real: { messages: [{status, size}], total }; normaliza para objeto por status (ausentes = 0).
+        // O endpoint ja conta ORIGINAL+SPLITTED, logo a contagem INCLUI as mensagens filhas.
+        const summary = parseStatusSummary(parsed);
         return jsonResponse({
           window: { initialDate: start.toISOString(), finalDate: end.toISOString() },
-          summary: parsed ?? (response.body ?? "").trim(),
+          incluiFilhas: true,
+          note: "A contagem por status considera ORIGINAL+SPLITTED (inclui mensagens filhas de Splitter).",
+          summary,
         });
       } catch (err) {
         return errorResponse("Failed to get iPaaS status summary", err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "panorama_saude",
+    {
+      description:
+        "Panorama proativo de saude do ambiente TOTVS iPaaS combinando fontes baratas que JA incluem as " +
+        "mensagens filhas (SPLITTED): metricas agregadas da conta (/metrics/commons), contagem por status na " +
+        "janela (/messages/status, inclui filhas) e os TOP fluxos por volume (/metrics/diagrams-transactions). " +
+        "PLAYBOOK: compara os erros COM filhas contra os erros SO ORIGINAL; se os erros com filhas forem bem " +
+        "maiores (razao >= 1.5), recomenda aprofundar com resumir_erros incluirFilhas=true ou listar_mensagens " +
+        "com SPLITTED. Quando as datas nao sao informadas, usa a janela padrao (ultimas 24h). Fontes opcionais que " +
+        "falham nao derrubam o panorama (sao sinalizadas). Exige sessao ativa. Nunca expoe o token.",
+      inputSchema: {
+        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}.`),
+        finalDate: z.string().optional().describe(`Fim da janela em ${isoHint}.`),
+        topFlows: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Quantidade de fluxos no ranking por volume (padrao 10)."),
+      },
+    },
+    async ({ initialDate, finalDate, topFlows }) => {
+      try {
+        if (sessionStore.state() !== "ATIVA") return missingSession();
+        let parsedInitial: Date | undefined;
+        let parsedFinal: Date | undefined;
+        try {
+          parsedInitial = parseIsoDate(initialDate);
+          parsedFinal = parseIsoDate(finalDate);
+        } catch {
+          return jsonResponse({
+            status: "INVALID_FILTERS",
+            message: `Datas invalidas. Informe as datas em ${isoHint}.`,
+            example: "2024-01-01T00:00:00Z",
+          });
+        }
+        const end = parsedFinal ?? new Date();
+        const start = parsedInitial ?? new Date(end.getTime() - config.monitor.defaultWindowMs);
+        const window = { initialDate: start.toISOString(), finalDate: end.toISOString() };
+        const dateOnly = (d: Date) => d.toISOString().slice(0, 10);
+        const topN = topFlows && topFlows > 0 ? topFlows : 10;
+
+        // (1) Metricas agregadas da conta (fonte opcional; nao derruba o panorama se falhar).
+        let accountMetrics: Record<string, unknown> | null = null;
+        const sourcesUnavailable: string[] = [];
+        const metricsResp = await apiClient.getAccountMetrics(dateOnly(end));
+        if (isUnauthorized(metricsResp)) return sessionExpiredOnServer();
+        if (isOk(metricsResp)) {
+          const m = tryParseJson(metricsResp.body);
+          if (m) {
+            accountMetrics = {
+              planName: textOrUndefined(m, "planName") ?? null,
+              projects: textOrUndefined(m, "projects") ?? null,
+              diagrams: textOrUndefined(m, "diagrams") ?? null,
+              totalMessages: textOrUndefined(m, "totalMessages") ?? null,
+              totalMessagesSuccess: textOrUndefined(m, "totalMessagesSuccess") ?? null,
+              totalMessagesError: textOrUndefined(m, "totalMessagesError") ?? null,
+              messagesPerMinute: textOrUndefined(m, "messagesPerMinute") ?? null,
+              avgExecutionTime: textOrUndefined(m, "avgExecutionTime") ?? null,
+            };
+          } else {
+            sourcesUnavailable.push("metrics/commons");
+          }
+        } else {
+          sourcesUnavailable.push("metrics/commons");
+        }
+
+        // (2) Contagem por status na janela (inclui filhas: ORIGINAL+SPLITTED).
+        let statusSummary: ReturnType<typeof parseStatusSummary> | null = null;
+        const statusResp = await apiClient.getStatusSummary(parsedInitial, parsedFinal);
+        if (isUnauthorized(statusResp)) return sessionExpiredOnServer();
+        if (isOk(statusResp)) {
+          const s = tryParseJson(statusResp.body);
+          if (s) statusSummary = parseStatusSummary(s);
+          else sourcesUnavailable.push("messages/status");
+        } else {
+          sourcesUnavailable.push("messages/status");
+        }
+
+        // (3) Baseline de erros SO ORIGINAL: 1 request barato, lendo apenas o total do envelope.
+        let errosSoOriginal: number | null = null;
+        const originalErrResp = await apiClient.getMessages({
+          statuses: ["ERROR"],
+          sourceTypes: ["ORIGINAL"],
+          initialDate: parsedInitial,
+          finalDate: parsedFinal,
+          limit: 1,
+        });
+        if (isUnauthorized(originalErrResp)) return sessionExpiredOnServer();
+        if (isOk(originalErrResp)) {
+          const o = tryParseJson(originalErrResp.body);
+          const t = (o as any)?.total;
+          if (typeof t === "number") errosSoOriginal = t;
+          else sourcesUnavailable.push("messages (ORIGINAL baseline)");
+        } else {
+          sourcesUnavailable.push("messages (ORIGINAL baseline)");
+        }
+
+        // (4) TOP fluxos por volume (fonte opcional).
+        let topFlowsList: Array<Record<string, unknown>> | null = null;
+        const txResp = await apiClient.getDiagramsTransactions(dateOnly(start), dateOnly(end));
+        if (isUnauthorized(txResp)) return sessionExpiredOnServer();
+        if (isOk(txResp)) {
+          const tx = tryParseJson(txResp.body);
+          const list = Array.isArray((tx as any)?.diagramsTransactions)
+            ? (tx as any).diagramsTransactions
+            : [];
+          topFlowsList = list
+            .map((d: any) => ({
+              integrationId: textOrUndefined(d, "integrationId") ?? null,
+              diagramName: textOrUndefined(d, "diagramName") ?? null,
+              projectName: textOrUndefined(d, "projectName") ?? null,
+              totalMessages: typeof d?.totalMessages === "number" ? d.totalMessages : 0,
+            }))
+            .sort((a: any, b: any) => (b.totalMessages ?? 0) - (a.totalMessages ?? 0))
+            .slice(0, topN);
+        } else {
+          sourcesUnavailable.push("metrics/diagrams-transactions");
+        }
+
+        // PLAYBOOK: erros COM filhas (do status-summary) vs erros SO ORIGINAL (baseline).
+        // Criterio explicito: recomendar investigar filhas quando com-filhas > so-original E
+        // com-filhas >= so-original * 1.5 (filhas respondem por boa parte do erro no periodo).
+        const errosComFilhas = statusSummary ? statusSummary.ERROR : null;
+        const RATIO = 1.5;
+        let recomendacao: Record<string, unknown> | null = null;
+        if (
+          errosComFilhas !== null &&
+          errosSoOriginal !== null &&
+          errosComFilhas > errosSoOriginal &&
+          errosComFilhas >= errosSoOriginal * RATIO
+        ) {
+          recomendacao = {
+            motivo:
+              "Os erros considerando filhas (SPLITTED) sao bem maiores que os erros so das mensagens originais; " +
+              "parte relevante das falhas esta nas filhas.",
+            criterio: `errosComFilhas > errosSoOriginal E errosComFilhas >= errosSoOriginal * ${RATIO}`,
+            errosComFilhas,
+            errosSoOriginal,
+            razao: errosSoOriginal > 0 ? Number((errosComFilhas / errosSoOriginal).toFixed(2)) : null,
+            nextStep:
+              "Chame resumir_erros com incluirFilhas=true (ou listar_mensagens com sourceTypes=['ORIGINAL','SPLITTED']) " +
+              "para investigar os erros das mensagens filhas.",
+          };
+        }
+
+        const result: Record<string, unknown> = {
+          window,
+          incluiFilhas: true,
+          note:
+            "O panorama inclui mensagens filhas (SPLITTED) por padrao: /messages/status e /metrics ja contam " +
+            "ORIGINAL+SPLITTED. O baseline 'errosSoOriginal' isola apenas as mensagens originais.",
+          accountMetrics,
+          statusSummary,
+          errosComFilhas,
+          errosSoOriginal,
+          topFlows: topFlowsList,
+          playbook: {
+            criterio: `errosComFilhas > errosSoOriginal E errosComFilhas >= errosSoOriginal * ${RATIO}`,
+            recomendado: recomendacao !== null,
+          },
+        };
+        if (recomendacao) result.recomendacao = recomendacao;
+        if (sourcesUnavailable.length > 0) result.sourcesUnavailable = sourcesUnavailable;
+        return jsonResponse(result);
+      } catch (err) {
+        return errorResponse("Failed to build iPaaS health panorama", err);
       }
     },
   );

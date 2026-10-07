@@ -284,7 +284,9 @@ describe("monitor tools require session and handle 401", () => {
 
   it("resumir_erros empty -> clean environment", async () => {
     const sessionStore = new SessionStore(); sessionStore.set(activeSession());
-    const apiClient = { getMessages: vi.fn(async () => resp(200, "[]")) } as any;
+    const apiClient = {
+      scanMessages: vi.fn(async () => ({ items: [], pagesFetched: 1, scanComplete: true, total: 0, lastResponse: resp(200, "[]") })),
+    } as any;
     const { call } = setup({ apiClient, sessionStore });
     const out = await call("resumir_erros", {});
     expect(out).toContain("NO_ERRORS");
@@ -294,27 +296,74 @@ describe("monitor tools require session and handle 401", () => {
   it("resumir_erros aggregates and orders by frequency", async () => {
     const sessionStore = new SessionStore(); sessionStore.set(activeSession());
     // Modelo real: a listagem traz finalComponent (nao o texto do erro); agrupamos por componente.
-    const body = JSON.stringify({
-      items: [
-        { id: "1", status: "ERROR", finalComponent: "Usar stored Token" },
-        { id: "2", status: "ERROR", finalComponent: "Usar stored Token" },
-        { id: "3", status: "ERROR", finalComponent: "Usar stored Token" },
-        { id: "4", status: "ERROR", finalComponent: "Lista pendentes" },
-        { id: "5", status: "ERROR", finalComponent: "Lista pendentes" },
-        { id: "6", status: "ERROR", diagramName: "Flow X" },
-      ],
-      hasNext: false,
-      total: 6,
-    });
-    const apiClient = { getMessages: vi.fn(async () => resp(200, body)) } as any;
+    const items = [
+      { id: "1", status: "ERROR", finalComponent: "Usar stored Token" },
+      { id: "2", status: "ERROR", finalComponent: "Usar stored Token" },
+      { id: "3", status: "ERROR", finalComponent: "Usar stored Token" },
+      { id: "4", status: "ERROR", finalComponent: "Lista pendentes" },
+      { id: "5", status: "ERROR", finalComponent: "Lista pendentes" },
+      { id: "6", status: "ERROR", diagramName: "Flow X" },
+    ];
+    const apiClient = {
+      scanMessages: vi.fn(async () => ({ items, pagesFetched: 1, scanComplete: true, total: 6, lastResponse: resp(200, "{}") })),
+    } as any;
     const { call } = setup({ apiClient, sessionStore });
     const out = await call("resumir_erros", {});
     const parsed = JSON.parse(out);
     expect(parsed.sampling).toBe(true);
     expect(parsed.distinctErrorTypes).toBe(3);
+    expect(parsed.scanComplete).toBe(true);
+    expect(parsed.truncated).toBe(false);
     expect(parsed.errors[0].type).toBe("finalComponent: Usar stored Token");
     expect(parsed.errors[0].count).toBe(3);
     expect(out).not.toContain("UNKNOWN_ERROR");
+  });
+
+  it("resumir_erros without incluirFilhas does not forward sourceTypes", async () => {
+    const sessionStore = new SessionStore(); sessionStore.set(activeSession());
+    let captured: any;
+    const apiClient = {
+      scanMessages: vi.fn(async (q: any) => { captured = q; return { items: [{ id: "1", status: "ERROR", finalComponent: "X" }], pagesFetched: 1, scanComplete: true, total: 1, lastResponse: resp(200, "{}") }; }),
+    } as any;
+    const { call } = setup({ apiClient, sessionStore });
+    await call("resumir_erros", {});
+    expect(captured.sourceTypes).toBeUndefined();
+    expect(captured.statuses).toEqual(["ERROR"]);
+  });
+
+  it("resumir_erros incluirFilhas=true forwards ORIGINAL+SPLITTED", async () => {
+    const sessionStore = new SessionStore(); sessionStore.set(activeSession());
+    let captured: any;
+    const apiClient = {
+      scanMessages: vi.fn(async (q: any) => { captured = q; return { items: [{ id: "1", status: "ERROR", finalComponent: "X" }], pagesFetched: 1, scanComplete: true, total: 1, lastResponse: resp(200, "{}") }; }),
+    } as any;
+    const { call } = setup({ apiClient, sessionStore });
+    const out = await call("resumir_erros", { incluirFilhas: true });
+    expect(captured.sourceTypes).toEqual(["ORIGINAL", "SPLITTED"]);
+    expect(JSON.parse(out).incluiFilhas).toBe(true);
+  });
+
+  it("resumir_erros flags truncated/scanComplete when the scan hits the page cap", async () => {
+    const sessionStore = new SessionStore(); sessionStore.set(activeSession());
+    const apiClient = {
+      scanMessages: vi.fn(async () => ({ items: [{ id: "1", status: "ERROR", finalComponent: "X" }], pagesFetched: 50, scanComplete: false, total: 9999, lastResponse: resp(200, "{}") })),
+    } as any;
+    const { call } = setup({ apiClient, sessionStore });
+    const out = await call("resumir_erros", {});
+    const parsed = JSON.parse(out);
+    expect(parsed.scanComplete).toBe(false);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.refineHint).toBeDefined();
+    expect(parsed.pagesFetched).toBe(50);
+  });
+
+  it("resumir_erros 401 from the scan -> SESSION_EXPIRED", async () => {
+    const sessionStore = new SessionStore(); sessionStore.set(activeSession());
+    const apiClient = {
+      scanMessages: vi.fn(async () => ({ items: [], pagesFetched: 0, scanComplete: false, total: null, lastResponse: resp(401, "no") })),
+    } as any;
+    const { call } = setup({ apiClient, sessionStore });
+    expect(await call("resumir_erros", {})).toContain("SESSION_EXPIRED");
   });
 });
 
@@ -368,13 +417,26 @@ describe("new tools from API mapping", () => {
     expect(out).toContain("INVALID_ID");
   });
 
-  it("resumo_por_status returns the status summary and window", async () => {
-    const body = JSON.stringify({ DONE: 10, ERROR: 3, PROCESSING: 1, REPROCESSED: 0 });
+  it("resumo_por_status parses the real { messages:[{status,size}], total } shape", async () => {
+    // Corpo real do endpoint: array de {status, size} + total; status ausentes = 0.
+    const body = JSON.stringify({
+      messages: [
+        { status: "DONE", size: 10 },
+        { status: "ERROR", size: 3 },
+        { status: "PROCESSING", size: 1 },
+      ],
+      total: 14,
+    });
     const { call } = setup2({ getStatusSummary: async () => ({ status: 200, body }) });
     const out = await call("resumo_por_status", {});
     const parsed = JSON.parse(out);
     expect(parsed.window).toBeDefined();
     expect(parsed.summary.ERROR).toBe(3);
+    expect(parsed.summary.DONE).toBe(10);
+    expect(parsed.summary.PROCESSING).toBe(1);
+    expect(parsed.summary.REPROCESSED).toBe(0);
+    expect(parsed.summary.total).toBe(14);
+    expect(parsed.incluiFilhas).toBe(true);
   });
 
   it("listar_filtros_disponiveis normalizes integrations and projects", async () => {
@@ -486,5 +548,90 @@ describe("new tools from API mapping", () => {
     registerIpaasTools(server as any, { config, sessionStore, apiClient: { getStatusSummary: async () => { throw new Error("should not call"); } } as any, authService: {} as any });
     const out = (await server.handlers.get("resumo_por_status")!({})).content[0]!.text;
     expect(out).toContain("iniciar_login_ipaas");
+  });
+
+  // Mock das 4 fontes do panorama; getMessages devolve o total de erros SO ORIGINAL (baseline).
+  function panoramaApi(opts: { statusError: number; originalError: number }) {
+    return {
+      getAccountMetrics: async () => ({
+        status: 200,
+        body: JSON.stringify({ planName: "ENTERPRISE", projects: 12, diagrams: 246, totalMessages: 797597, totalMessagesSuccess: 781504, totalMessagesError: 16398, messagesPerMinute: 41, avgExecutionTime: 4 }),
+      }),
+      getStatusSummary: async () => ({
+        status: 200,
+        body: JSON.stringify({ messages: [{ status: "DONE", size: 1000 }, { status: "ERROR", size: opts.statusError }], total: 1000 + opts.statusError }),
+      }),
+      getMessages: async () => ({ status: 200, body: JSON.stringify({ items: [], hasNext: true, total: opts.originalError }) }),
+      getDiagramsTransactions: async () => ({
+        status: 200,
+        body: JSON.stringify({
+          totalMessages: 300,
+          diagramsTransactions: [
+            { totalMessages: 50, integrationId: "i1", diagramName: "Flow A", projectName: "P1" },
+            { totalMessages: 200, integrationId: "i2", diagramName: "Flow B", projectName: "P1" },
+            { totalMessages: 10, integrationId: "i3", diagramName: "Flow C", projectName: "P2" },
+          ],
+        }),
+      }),
+    };
+  }
+
+  it("panorama_saude recommends investigating children when erros-com-filhas >> so-original", async () => {
+    // 120 erros com filhas vs 10 so originais => razao 12 (>1.5) => recomendacao presente.
+    const { call } = setup2(panoramaApi({ statusError: 120, originalError: 10 }));
+    const out = await call("panorama_saude", {});
+    const parsed = JSON.parse(out);
+    expect(parsed.incluiFilhas).toBe(true);
+    expect(parsed.errosComFilhas).toBe(120);
+    expect(parsed.errosSoOriginal).toBe(10);
+    expect(parsed.playbook.recomendado).toBe(true);
+    expect(parsed.recomendacao).toBeDefined();
+    expect(parsed.recomendacao.razao).toBe(12);
+    expect(parsed.recomendacao.nextStep).toContain("incluirFilhas");
+    // topFlows ordenado desc por volume e cortado.
+    expect(parsed.topFlows[0].diagramName).toBe("Flow B");
+    expect(parsed.topFlows[0].totalMessages).toBe(200);
+    expect(out).not.toContain("token-secret");
+  });
+
+  it("panorama_saude: no recommendation when errors are balanced", async () => {
+    // 12 com filhas vs 10 so originais => razao 1.2 (<1.5) => sem recomendacao.
+    const { call } = setup2(panoramaApi({ statusError: 12, originalError: 10 }));
+    const out = await call("panorama_saude", {});
+    const parsed = JSON.parse(out);
+    expect(parsed.playbook.recomendado).toBe(false);
+    expect(parsed.recomendacao).toBeUndefined();
+  });
+
+  it("panorama_saude respects topFlows cap", async () => {
+    const { call } = setup2(panoramaApi({ statusError: 120, originalError: 10 }));
+    const out = await call("panorama_saude", { topFlows: 1 });
+    const parsed = JSON.parse(out);
+    expect(parsed.topFlows).toHaveLength(1);
+    expect(parsed.topFlows[0].diagramName).toBe("Flow B");
+  });
+
+  it("panorama_saude without session -> missingSession", async () => {
+    const sessionStore = new SessionStore();
+    const server = new FakeMcpServer();
+    registerIpaasTools(server as any, { config, sessionStore, apiClient: { getAccountMetrics: async () => { throw new Error("should not call"); } } as any, authService: {} as any });
+    const out = (await server.handlers.get("panorama_saude")!({})).content[0]!.text;
+    expect(out).toContain("iniciar_login_ipaas");
+  });
+
+  it("panorama_saude signals unavailable optional sources without failing", async () => {
+    const api = {
+      getAccountMetrics: async () => ({ status: 500, body: "boom" }),
+      getStatusSummary: async () => ({ status: 200, body: JSON.stringify({ messages: [{ status: "ERROR", size: 5 }], total: 5 }) }),
+      getMessages: async () => ({ status: 200, body: JSON.stringify({ items: [], hasNext: false, total: 5 }) }),
+      getDiagramsTransactions: async () => ({ status: 500, body: "boom" }),
+    };
+    const { call } = setup2(api);
+    const out = await call("panorama_saude", {});
+    const parsed = JSON.parse(out);
+    expect(parsed.accountMetrics).toBeNull();
+    expect(parsed.topFlows).toBeNull();
+    expect(parsed.sourcesUnavailable).toContain("metrics/commons");
+    expect(parsed.sourcesUnavailable).toContain("metrics/diagrams-transactions");
   });
 });
