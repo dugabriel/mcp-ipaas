@@ -195,7 +195,20 @@ nvm install 20</code></pre></div>
         <p class="path-line" data-os="win">Arquivo: <span class="inline-code">%USERPROFILE%\.kiro\settings\mcp.json</span></p>
         <p class="path-line" data-os="mac">Arquivo: <span class="inline-code">~/.kiro/settings/mcp.json</span></p>
         <p class="path-line" data-os="linux">Arquivo: <span class="inline-code">~/.kiro/settings/mcp.json</span></p>
-        <div class="code"><button class="copy">copiar</button><pre><code>{
+        <div data-os="win">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
+  "mcpServers": {
+    "ipaas": {
+      "command": "npx",
+      "args": ["-y", "ipaas-mcp-server"],
+      "env": { "IPAAS_USE_SYSTEM_BROWSER": "true" }
+    }
+  }
+}</code></pre></div>
+          <p class="verify">No Windows, <span class="inline-code">IPAAS_USE_SYSTEM_BROWSER</span> já vem como <span class="inline-code">true</span>: em redes corporativas (proxy/firewall com inspeção TLS) o download do Chromium do Playwright costuma falhar, então o login usa o Chrome/Edge já instalado. A sessão continua isolada, sem usar o seu perfil pessoal.</p>
+        </div>
+        <div data-os="mac">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
   "mcpServers": {
     "ipaas": {
       "command": "npx",
@@ -203,6 +216,17 @@ nvm install 20</code></pre></div>
     }
   }
 }</code></pre></div>
+        </div>
+        <div data-os="linux">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
+  "mcpServers": {
+    "ipaas": {
+      "command": "npx",
+      "args": ["-y", "ipaas-mcp-server"]
+    }
+  }
+}</code></pre></div>
+        </div>
       </div>
 
       <!-- Claude -->
@@ -210,7 +234,20 @@ nvm install 20</code></pre></div>
         <p class="path-line" data-os="win">Arquivo: <span class="inline-code">%APPDATA%\Claude\claude_desktop_config.json</span></p>
         <p class="path-line" data-os="mac">Arquivo: <span class="inline-code">~/Library/Application Support/Claude/claude_desktop_config.json</span></p>
         <p class="path-line" data-os="linux">Arquivo: <span class="inline-code">~/.config/Claude/claude_desktop_config.json</span></p>
-        <div class="code"><button class="copy">copiar</button><pre><code>{
+        <div data-os="win">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
+  "mcpServers": {
+    "ipaas": {
+      "command": "npx",
+      "args": ["-y", "ipaas-mcp-server"],
+      "env": { "IPAAS_USE_SYSTEM_BROWSER": "true" }
+    }
+  }
+}</code></pre></div>
+          <p class="verify">No Windows, <span class="inline-code">IPAAS_USE_SYSTEM_BROWSER</span> já vem como <span class="inline-code">true</span>: em redes corporativas (proxy/firewall com inspeção TLS) o download do Chromium do Playwright costuma falhar, então o login usa o Chrome/Edge já instalado. A sessão continua isolada, sem usar o seu perfil pessoal.</p>
+        </div>
+        <div data-os="mac">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
   "mcpServers": {
     "ipaas": {
       "command": "npx",
@@ -218,6 +255,17 @@ nvm install 20</code></pre></div>
     }
   }
 }</code></pre></div>
+        </div>
+        <div data-os="linux">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
+  "mcpServers": {
+    "ipaas": {
+      "command": "npx",
+      "args": ["-y", "ipaas-mcp-server"]
+    }
+  }
+}</code></pre></div>
+        </div>
         <p class="verify">Reinicie o Claude Desktop após salvar.</p>
       </div>
 
@@ -226,9 +274,23 @@ nvm install 20</code></pre></div>
         <p class="path-line" data-os="win">Arquivo: <span class="inline-code">%USERPROFILE%\.codex\config.toml</span></p>
         <p class="path-line" data-os="mac">Arquivo: <span class="inline-code">~/.codex/config.toml</span></p>
         <p class="path-line" data-os="linux">Arquivo: <span class="inline-code">~/.codex/config.toml</span></p>
-        <div class="code"><button class="copy">copiar</button><pre><code>[mcp_servers.ipaas]
+        <div data-os="win">
+          <div class="code"><button class="copy">copiar</button><pre><code>[mcp_servers.ipaas]
+command = "npx"
+args = ["-y", "ipaas-mcp-server"]
+env = { IPAAS_USE_SYSTEM_BROWSER = "true" }</code></pre></div>
+          <p class="verify">No Windows, <span class="inline-code">IPAAS_USE_SYSTEM_BROWSER</span> já vem como <span class="inline-code">true</span>: em redes corporativas (proxy/firewall com inspeção TLS) o download do Chromium do Playwright costuma falhar, então o login usa o Chrome/Edge já instalado. A sessão continua isolada, sem usar o seu perfil pessoal.</p>
+        </div>
+        <div data-os="mac">
+          <div class="code"><button class="copy">copiar</button><pre><code>[mcp_servers.ipaas]
 command = "npx"
 args = ["-y", "ipaas-mcp-server"]</code></pre></div>
+        </div>
+        <div data-os="linux">
+          <div class="code"><button class="copy">copiar</button><pre><code>[mcp_servers.ipaas]
+command = "npx"
+args = ["-y", "ipaas-mcp-server"]</code></pre></div>
+        </div>
         <p class="verify">Ou pela CLI: <span class="inline-code">codex mcp add ipaas -- npx -y ipaas-mcp-server</span></p>
       </div>
 
@@ -237,7 +299,22 @@ args = ["-y", "ipaas-mcp-server"]</code></pre></div>
         <p class="path-line" data-os="win">Arquivo: <span class="inline-code">%USERPROFILE%\.config\opencode\opencode.json</span> (ou <span class="inline-code">opencode.json</span> no projeto)</p>
         <p class="path-line" data-os="mac">Arquivo: <span class="inline-code">~/.config/opencode/opencode.json</span> (ou <span class="inline-code">opencode.json</span> no projeto)</p>
         <p class="path-line" data-os="linux">Arquivo: <span class="inline-code">~/.config/opencode/opencode.json</span> (ou <span class="inline-code">opencode.json</span> no projeto)</p>
-        <div class="code"><button class="copy">copiar</button><pre><code>{
+        <div data-os="win">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ipaas": {
+      "type": "local",
+      "command": ["npx", "-y", "ipaas-mcp-server"],
+      "enabled": true,
+      "environment": { "IPAAS_USE_SYSTEM_BROWSER": "true" }
+    }
+  }
+}</code></pre></div>
+          <p class="verify">No Windows, <span class="inline-code">IPAAS_USE_SYSTEM_BROWSER</span> já vem como <span class="inline-code">true</span>: em redes corporativas (proxy/firewall com inspeção TLS) o download do Chromium do Playwright costuma falhar, então o login usa o Chrome/Edge já instalado. A sessão continua isolada, sem usar o seu perfil pessoal.</p>
+        </div>
+        <div data-os="mac">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "ipaas": {
@@ -247,47 +324,19 @@ args = ["-y", "ipaas-mcp-server"]</code></pre></div>
     }
   }
 }</code></pre></div>
-      </div>
-    </section>
-
-    <!-- 3. Ambiente gráfico -->
-    <section>
-      <div class="sec-head">
-        <span class="sec-num">3</span>
-        <div>
-          <h2>Ambiente gráfico para o login</h2>
-          <p class="sec-sub">O login no iPaaS abre uma janela do Chromium (baixada automaticamente na primeira vez).</p>
         </div>
-      </div>
-
-      <div data-os="win">
-        <p class="muted">Funciona direto. Nenhuma configuração adicional é necessária.</p>
-        <p class="muted">
-          Em redes corporativas (proxy/firewall com inspeção TLS), o download automático do
-          Chromium pode falhar com erro de certificado. Nesse caso, defina
-          <span class="inline-code">IPAAS_USE_SYSTEM_BROWSER</span> como <span class="inline-code">true</span>
-          para usar o Chrome/Edge já instalado no Windows (tenta Chrome, depois Edge, depois o Chromium do Playwright).
-          A sessão continua isolada — não usa o seu perfil pessoal:
-        </p>
-        <div class="code"><button class="copy">copiar</button><pre><code>{
-  "mcpServers": {
+        <div data-os="linux">
+          <div class="code"><button class="copy">copiar</button><pre><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
     "ipaas": {
-      "command": "npx",
-      "args": ["-y", "ipaas-mcp-server"],
-      "env": { "IPAAS_USE_SYSTEM_BROWSER": "true" }
+      "type": "local",
+      "command": ["npx", "-y", "ipaas-mcp-server"],
+      "enabled": true
     }
   }
 }</code></pre></div>
-      </div>
-      <div data-os="mac">
-        <p class="muted">Funciona direto. Nenhuma configuração adicional é necessária.</p>
-      </div>
-      <div data-os="linux">
-        <p class="muted">
-          Em desktop (X11/Wayland) o display é detectado automaticamente. Em ambiente
-          <strong>headless</strong> (SSH, container, sem interface gráfica) o login manual não
-          é possível — rode o servidor numa máquina com desktop.
-        </p>
+        </div>
       </div>
     </section>
 
