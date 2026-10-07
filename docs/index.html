@@ -79,7 +79,16 @@
       position: relative; background: var(--code-bg); border: 1px solid var(--line);
       border-radius: var(--radius); margin: 0 0 .75rem;
     }
-    pre { margin: 0; padding: .85rem 3.2rem .85rem 1rem; overflow-x: auto; }
+    pre {
+      margin: 0; padding: 1.1rem 1.1rem 1.1rem 1.1rem;
+      white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+      scrollbar-width: none;
+    }
+    pre::-webkit-scrollbar { display: none; }
+    /* reserva espaço pro botão copiar na primeira linha */
+    pre > code { display: block; }
+    .code { padding-top: 1.6rem; }
+    .code > pre { padding-top: .5rem; }
     code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: .86rem; }
     .inline-code {
       font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
