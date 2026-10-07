@@ -15,6 +15,16 @@ function isMissingBrowser(err: unknown): boolean {
 }
 
 /**
+ * Le a flag IPAAS_USE_SYSTEM_BROWSER (aceita "true"/"1", case-insensitive). Quando ligada,
+ * o launch tenta os navegadores ja instalados no sistema (Chrome, depois Edge) antes de
+ * cair no Chromium do Playwright.
+ */
+function useSystemBrowser(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.IPAAS_USE_SYSTEM_BROWSER?.trim().toLowerCase();
+  return value === "true" || value === "1";
+}
+
+/**
  * Lanca o Chromium; se o executavel nao estiver instalado, baixa-o automaticamente
  * (uma unica vez por processo) e tenta de novo. A instalacao escreve no stderr e e
  * tolerante: se falhar, o erro original de launch e propagado para a camada de login.
@@ -22,6 +32,19 @@ function isMissingBrowser(err: unknown): boolean {
 export async function launchChromiumWithAutoInstall(options: LaunchOptions): Promise<Browser> {
   // Em Linux, garante DISPLAY/XAUTHORITY antes de abrir o navegador (no-op em Win/Mac).
   ensureGraphicalEnv();
+  // Com IPAAS_USE_SYSTEM_BROWSER ligada, tenta Chrome -> Edge do sistema antes do Chromium.
+  if (useSystemBrowser()) {
+    for (const channel of ["chrome", "msedge"]) {
+      try {
+        console.error(`[ipaas-mcp] IPAAS_USE_SYSTEM_BROWSER ativo; tentando o navegador do sistema (channel: ${channel})...`);
+        return await chromium.launch({ ...options, channel });
+      } catch (err) {
+        if (!isMissingBrowser(err)) throw err;
+        console.error(`[ipaas-mcp] Navegador do sistema "${channel}" nao encontrado; tentando a proxima opcao...`);
+      }
+    }
+    console.error("[ipaas-mcp] Nenhum navegador do sistema encontrado; caindo no Chromium do Playwright.");
+  }
   try {
     return await chromium.launch(options);
   } catch (err) {

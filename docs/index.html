@@ -262,6 +262,22 @@ args = ["-y", "ipaas-mcp-server"]</code></pre></div>
 
       <div data-os="win">
         <p class="muted">Funciona direto. Nenhuma configuração adicional é necessária.</p>
+        <p class="muted">
+          Em redes corporativas (proxy/firewall com inspeção TLS), o download automático do
+          Chromium pode falhar com erro de certificado. Nesse caso, defina
+          <span class="inline-code">IPAAS_USE_SYSTEM_BROWSER</span> como <span class="inline-code">true</span>
+          para usar o Chrome/Edge já instalado no Windows (tenta Chrome, depois Edge, depois o Chromium do Playwright).
+          A sessão continua isolada — não usa o seu perfil pessoal:
+        </p>
+        <div class="code"><button class="copy">copiar</button><pre><code>{
+  "mcpServers": {
+    "ipaas": {
+      "command": "npx",
+      "args": ["-y", "ipaas-mcp-server"],
+      "env": { "IPAAS_USE_SYSTEM_BROWSER": "true" }
+    }
+  }
+}</code></pre></div>
       </div>
       <div data-os="mac">
         <p class="muted">Funciona direto. Nenhuma configuração adicional é necessária.</p>

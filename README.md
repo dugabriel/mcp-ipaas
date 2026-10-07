@@ -46,6 +46,23 @@ login é acionado (uma única vez). Se preferir pré-instalar ou se o download a
 npx playwright install chromium
 ```
 
+> **Proxy/TLS corporativo (ex.: Windows):** se o download do Chromium falhar por inspeção TLS do
+> proxy, defina `IPAAS_USE_SYSTEM_BROWSER` como `true` para usar o Chrome/Edge já instalado (tenta
+> Chrome, depois Edge, depois o Chromium do Playwright). A sessão continua isolada — não usa o seu
+> perfil pessoal:
+>
+> ```json
+> {
+>   "mcpServers": {
+>     "ipaas": {
+>       "command": "node",
+>       "args": ["/caminho/para/mcp-ipaas/dist/index.js"],
+>       "env": { "IPAAS_USE_SYSTEM_BROWSER": "true" }
+>     }
+>   }
+> }
+> ```
+
 ## Uso a partir do código-fonte
 
 ```bash
@@ -113,6 +130,7 @@ O token muda a cada troca de empresa, então o login é em dois passos:
 | `IPAAS_MONITOR_MAX_LIMIT` | `100` | Teto rígido de registros por chamada. |
 | `IPAAS_MONITOR_DEFAULT_WINDOW_MS` | `86400000` | Janela padrão (24h, ms) quando as datas são omitidas. |
 | `IPAAS_DEV_TOOLS` | — | `1` ativa tools de desenvolvimento para mapear novas APIs (`_debug_get`). |
+| `IPAAS_USE_SYSTEM_BROWSER` | — | `true` usa o navegador do sistema no login (tenta Chrome, depois Edge, depois o Chromium do Playwright). Útil no Windows ou em qualquer ambiente onde o download do Chromium falhe por proxy/TLS corporativo. A sessão continua isolada (não usa o perfil pessoal). |
 
 ## Segurança
 
