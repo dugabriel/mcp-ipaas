@@ -22,6 +22,12 @@ import {
 } from "./tool-helpers.js";
 
 const isoHint = "ISO-8601 com sufixo Z, ex.: 2024-01-01T00:00:00Z";
+// O corte do "dia"/"hoje" no backend do iPaaS e a meia-noite UTC (00:00:00Z), igual a UI do
+// Monitor. Para janelas relativas (hoje, inicio do dia) use 00:00:00Z e NAO assuma o fuso de
+// Brasilia/local (comecar o dia em 03:00Z perde mensagens).
+export const relativeDayHint =
+  "Para 'hoje'/inicio do dia use 00:00:00Z (UTC), igual a UI do Monitor; NAO assuma o fuso de " +
+  "Brasilia/local (comecar o dia em 03:00Z perde mensagens).";
 
 export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
   const { config, sessionStore, apiClient } = deps;
@@ -209,7 +215,7 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
           .array(z.enum(["ORIGINAL", "SPLITTED"]))
           .optional()
           .describe("Tipos de origem: ORIGINAL e/ou SPLITTED (padrao ORIGINAL)."),
-        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}.`),
+        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}. ${relativeDayHint}`),
         finalDate: z.string().optional().describe(`Fim da janela em ${isoHint}.`),
         limit: z.number().int().optional().describe("Tamanho da amostra desejado; teto rigido de 100 por chamada."),
       },
@@ -225,7 +231,7 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         } catch {
           return jsonResponse({
             status: "INVALID_FILTERS",
-            message: `Datas invalidas. Informe initialDate e finalDate em ${isoHint}. Sem datas, a janela padrao (ultimas 24h) e usada.`,
+            message: `Datas invalidas. Informe initialDate e finalDate em ${isoHint}. ${relativeDayHint} Sem datas, a janela padrao (ultimas 24h) e usada.`,
             example: "2024-01-01T00:00:00Z",
           });
         }
@@ -475,7 +481,7 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         "'truncated' true, com dica para estreitar a janela. Quando nao ha datas, usa a janela padrao (ultimas 24h). " +
         "Se nao houver erros, indica ambiente limpo. Exige sessao ativa. Nunca expoe o token.",
       inputSchema: {
-        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}.`),
+        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}. ${relativeDayHint}`),
         finalDate: z.string().optional().describe(`Fim da janela em ${isoHint}.`),
         limit: z.number().int().optional().describe("Tamanho de cada lote na varredura; teto rigido de 100 por request."),
         incluirFilhas: z
@@ -495,7 +501,7 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         } catch {
           return jsonResponse({
             status: "INVALID_FILTERS",
-            message: `Datas invalidas. Informe as datas em ${isoHint}.`,
+            message: `Datas invalidas. Informe as datas em ${isoHint}. ${relativeDayHint}`,
             example: "2024-01-01T00:00:00Z",
           });
         }
@@ -623,7 +629,7 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         "barata (sem baixar as mensagens). Quando as datas nao sao informadas, usa a janela padrao (ultimas 24h). " +
         "Exige sessao ativa. Nunca expoe o token.",
       inputSchema: {
-        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}.`),
+        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}. ${relativeDayHint}`),
         finalDate: z.string().optional().describe(`Fim da janela em ${isoHint}.`),
       },
     },
@@ -638,7 +644,7 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         } catch {
           return jsonResponse({
             status: "INVALID_FILTERS",
-            message: `Datas invalidas. Informe as datas em ${isoHint}.`,
+            message: `Datas invalidas. Informe as datas em ${isoHint}. ${relativeDayHint}`,
             example: "2024-01-01T00:00:00Z",
           });
         }
@@ -682,7 +688,7 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         "com SPLITTED. Quando as datas nao sao informadas, usa a janela padrao (ultimas 24h). Fontes opcionais que " +
         "falham nao derrubam o panorama (sao sinalizadas). Exige sessao ativa. Nunca expoe o token.",
       inputSchema: {
-        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}.`),
+        initialDate: z.string().optional().describe(`Inicio da janela em ${isoHint}. ${relativeDayHint}`),
         finalDate: z.string().optional().describe(`Fim da janela em ${isoHint}.`),
         topFlows: z
           .number()
@@ -703,7 +709,7 @@ export function registerMonitorTools(server: McpServer, deps: ToolDeps): void {
         } catch {
           return jsonResponse({
             status: "INVALID_FILTERS",
-            message: `Datas invalidas. Informe as datas em ${isoHint}.`,
+            message: `Datas invalidas. Informe as datas em ${isoHint}. ${relativeDayHint}`,
             example: "2024-01-01T00:00:00Z",
           });
         }

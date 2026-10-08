@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { registerIpaasTools, type ToolDeps } from "../src/tools/ipaas-tools.js";
+import { relativeDayHint } from "../src/tools/ipaas-monitor-tools.js";
 import { SessionStore } from "../src/session/session-store.js";
 import { loadConfig } from "../src/config/config.js";
 import type { IpaasSession, ApiResponse } from "../src/model/types.js";
@@ -885,5 +886,22 @@ describe("new tools from API mapping", () => {
   it("avaliar_diagrama 401 -> SESSION_EXPIRED", async () => {
     const { call } = setup2({ getDiagramFlow: async () => ({ status: 401, body: "no" }) });
     expect(await call("avaliar_diagrama", { diagramId: "d" })).toContain("SESSION_EXPIRED");
+  });
+});
+
+describe("relativeDayHint (semantica de 'hoje' = 00:00:00Z UTC)", () => {
+  it("orienta usar 00:00:00Z (UTC) e nao assumir Brasilia/local", () => {
+    expect(relativeDayHint).toContain("00:00:00Z");
+    expect(relativeDayHint).toContain("UTC");
+    expect(relativeDayHint).toContain("Brasilia");
+  });
+
+  it("aparece na mensagem INVALID_FILTERS de listar_mensagens", async () => {
+    const sessionStore = new SessionStore(); sessionStore.set(activeSession());
+    const apiClient = { getMessages: vi.fn() } as any;
+    const { call } = setup({ apiClient, sessionStore });
+    const out = await call("listar_mensagens", { initialDate: "01/01/2024" });
+    expect(out).toContain("00:00:00Z");
+    expect(apiClient.getMessages).not.toHaveBeenCalled();
   });
 });

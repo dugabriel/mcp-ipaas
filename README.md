@@ -135,6 +135,8 @@ O token muda a cada troca de empresa, então o login é em dois passos:
 | `IPAAS_DEV_TOOLS` | — | `1` ativa tools de desenvolvimento para mapear novas APIs (`_debug_get`). |
 | `IPAAS_USE_SYSTEM_BROWSER` | — | `true` usa o navegador do sistema no login (tenta Chrome, depois Edge, depois o Chromium do Playwright). Útil no Windows ou em qualquer ambiente onde o download do Chromium falhe por proxy/TLS corporativo. A sessão continua isolada (não usa o perfil pessoal). |
 
+> **Janela de "hoje"/dia = 00:00:00Z (UTC).** O corte do "dia"/"hoje" no backend do iPaaS é à meia-noite **UTC**, exatamente como a UI do Monitor. Janelas relativas de dia devem começar em `00:00:00Z` e **não** no fuso de Brasília (começar o dia em `03:00Z` perde mensagens). Isso é independente da janela padrão de 24h, usada só quando nenhuma data é informada.
+
 ## Segurança
 
 - Token e cookies ficam **somente em memória**; nunca são gravados em disco.

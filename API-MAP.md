@@ -8,6 +8,8 @@ Autenticacao: `Authorization: Bearer <jwt.token>` (cookie `jwt.token`).
 ### GET /ipaas/api/v4/messages  (listagem do Monitor)
 Query real: `page`, `pageSize` (NAO `limit`), `sourceTypes` (repetivel: ORIGINAL, SPLITTED),
 `status` (repetivel: PROCESSING, DONE, ERROR, REPROCESSED), `initialDate`, `finalDate` (ISO Z).
+NOTA: o corte do "dia"/"hoje" e a meia-noite UTC (00:00:00Z), igual a UI do Monitor; janelas
+relativas de dia devem comecar em 00:00:00Z e NAO no fuso de Brasilia (03:00Z perde mensagens).
 
 Resposta: envelope `{ items: [...], hasNext: boolean, total: number }`.
 Campos de cada item:
@@ -27,6 +29,8 @@ o `message` e o proprio stack trace; quando DONE, e o payload enviado). `message
 
 ### GET /ipaas/api/v4/messages/status  (contagem por status) — CORPO CONFIRMADO (DevTools 2026-10-07)
 Query: `initialDate`, `finalDate` (ISO Z), `status` (repetivel). Aceita tambem `id` (vazio no front).
+NOTA: "dia"/"hoje" tem corte a meia-noite UTC (00:00:00Z), igual a UI; use 00:00:00Z para janelas
+relativas de dia, nao o fuso de Brasilia (03:00Z perde mensagens).
 NAO envia `sourceTypes` na chamada do front. CONFIRMADO (DevTools 2026-10-07, segunda sessao) que a
 contagem JA INCLUI ORIGINAL + SPLITTED: no mesmo periodo/status, /v4/messages/status deu total=91843,
 batendo com /v4/messages?sourceTypes=ORIGINAL&sourceTypes=SPLITTED (total=91875) e NAO com

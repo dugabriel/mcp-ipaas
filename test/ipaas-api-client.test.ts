@@ -86,6 +86,16 @@ describe("IpaasApiClient.getMessages clamp", () => {
     expect(sp.getAll("sourceTypes")).toEqual(["ORIGINAL", "SPLITTED"]);
   });
 
+  it("passes initialDate=00:00Z through without shifting to Brasilia (03:00Z)", async () => {
+    let captured = "";
+    const fetchFn = vi.fn(async (url: string) => { captured = url; return { status: 200, text: async () => "[]" } as any; });
+    const { client } = clientWith(fetchFn);
+    await client.getMessages({ initialDate: new Date("2026-10-08T00:00:00Z"), finalDate: new Date("2026-10-09T00:00:00Z") });
+    const p = new URL(captured).searchParams;
+    expect(p.get("initialDate")).toBe("2026-10-08T00:00:00.000Z");
+    expect(p.get("finalDate")).toBe("2026-10-09T00:00:00.000Z");
+  });
+
   it("applies default 24h window when dates absent", async () => {
     let captured = "";
     const fetchFn = vi.fn(async (url: string) => { captured = url; return { status: 200, text: async () => "[]" } as any; });
